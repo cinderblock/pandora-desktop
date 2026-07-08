@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pandora</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <div id="bg"></div>
+    <div id="scrim"></div>
+
+    <div id="login-hint" hidden>
+      <div class="card">
+        <h2>Sign in to Pandora</h2>
+        <p>Log in inside the separate <b>“Pandora Engine”</b> window (check <b>“Keep me signed in”</b>), then start a station. Playback appears here automatically and the session persists next time.</p>
+        <button id="open-engine">Bring Pandora Engine to front</button>
+      </div>
+    </div>
+
+    <main id="player" hidden>
+      <section class="stage">
+        <div class="art-wrap">
+          <img id="art" alt="Album art" />
+        </div>
+        <div class="meta">
+          <div id="station"></div>
+          <h1 id="title">—</h1>
+          <div id="artist"></div>
+          <div id="album"></div>
+        </div>
+
+        <div class="progress">
+          <span id="t-cur">0:00</span>
+          <div class="track"><div id="bar"></div></div>
+          <span id="t-dur">0:00</span>
+        </div>
+
+        <div class="controls">
+          <button id="thumbDown" class="icon" title="Thumbs down">
+            <svg viewBox="0 0 24 24"><path d="M10 15V19a3 3 0 0 0 3 3l4-9V2H5.7a2 2 0 0 0-2 1.7l-1.4 9A2 2 0 0 0 4.3 15H10zM17 2h2.7A2.3 2.3 0 0 1 22 4.3v6.4A2.3 2.3 0 0 1 19.7 13H17"/></svg>
+          </button>
+          <button id="replay" class="icon" title="Replay">
+            <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+          <button id="play" class="icon big" title="Play/Pause">
+            <svg id="play-icon" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>
+            <svg id="pause-icon" viewBox="0 0 24 24" hidden><path d="M7 4h4v16H7zM13 4h4v16h-4z"/></svg>
+          </button>
+          <button id="skip" class="icon" title="Skip">
+            <svg viewBox="0 0 24 24"><path d="M5 4l11 8-11 8z"/><path d="M18 4h2v16h-2z"/></svg>
+          </button>
+          <button id="thumbUp" class="icon" title="Thumbs up">
+            <svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.3a2 2 0 0 0 2-1.7l1.4-9A2 2 0 0 0 19.7 9H14zM7 22H4.3A2.3 2.3 0 0 1 2 19.7v-6.4A2.3 2.3 0 0 1 4.3 11H7"/></svg>
+          </button>
+        </div>
+      </section>
+
+      <section class="lyrics-pane">
+        <div id="lyrics-status">Lyrics</div>
+        <div id="lyrics"></div>
+      </section>
+    </main>
+  </body>
+</html>
