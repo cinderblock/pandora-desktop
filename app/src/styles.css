@@ -421,6 +421,56 @@ button.icon.big:hover {
   font-size: 1.1rem;
 }
 
+/* ---- history detail modal ---- */
+#hist-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 8, 10, 0.55);
+  backdrop-filter: blur(6px);
+}
+.hm-card {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  background: rgba(22, 22, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 24px;
+  max-width: min(560px, 86vw);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+}
+#hm-art {
+  width: 180px;
+  height: 180px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+.hm-info {
+  min-width: 0;
+}
+#hm-title {
+  margin: 0 0 6px;
+  font-size: 1.3rem;
+  line-height: 1.2;
+}
+#hm-artist {
+  color: var(--fg);
+  margin-bottom: 2px;
+}
+#hm-album {
+  color: var(--dim);
+  font-size: 0.9rem;
+}
+#hm-when {
+  color: var(--faint);
+  font-size: 0.78rem;
+  margin-top: 10px;
+}
+
 /* ---- login hint ---- */
 #login-hint {
   position: fixed;

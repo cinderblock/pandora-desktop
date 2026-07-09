@@ -171,6 +171,8 @@ interface HistItem {
   art: string;
   title: string;
   artist: string;
+  album?: string;
+  at?: number;
 }
 let history: HistItem[] = [];
 try {
@@ -178,6 +180,28 @@ try {
 } catch {
   history = [];
 }
+const histModal = $("hist-modal");
+const hmArt = $<HTMLImageElement>("hm-art");
+const hmTitle = $("hm-title");
+const hmArtist = $("hm-artist");
+const hmAlbum = $("hm-album");
+const hmWhen = $("hm-when");
+
+function openHistModal(h: HistItem) {
+  hmArt.src = h.art;
+  hmTitle.textContent = h.title;
+  hmArtist.textContent = h.artist;
+  hmAlbum.textContent = h.album || "";
+  hmWhen.textContent = h.at ? `Played ${new Date(h.at).toLocaleString()}` : "";
+  histModal.hidden = false;
+}
+histModal.addEventListener("click", (e) => {
+  if (!(e.target as HTMLElement).closest(".hm-card")) histModal.hidden = true;
+});
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") histModal.hidden = true;
+});
+
 function renderHistory() {
   histEl.innerHTML = "";
   for (const h of history) {
@@ -186,6 +210,7 @@ function renderHistory() {
     img.title = `${h.title} — ${h.artist}`;
     img.className = "hist-item";
     img.loading = "lazy";
+    img.addEventListener("click", () => openHistModal(h));
     histEl.appendChild(img);
   }
 }
@@ -193,7 +218,7 @@ function pushHistory(np: NowPlaying) {
   const art = np.artFallback || np.art;
   if (!art || !np.title) return;
   if (history[0] && history[0].title === np.title && history[0].artist === np.artist) return;
-  history.unshift({ art, title: np.title, artist: np.artist });
+  history.unshift({ art, title: np.title, artist: np.artist, album: np.album, at: Date.now() });
   history = history.slice(0, 40);
   localStorage.setItem("history", JSON.stringify(history));
   renderHistory();
@@ -251,14 +276,28 @@ async function loadLyrics(np: NowPlaying) {
 }
 
 // ---- playhead ----------------------------------------------------------
+// Playing/paused is derived from whether the position is actually moving —
+// Pandora's DOM and <audio> elements both misreport paused state, but a
+// advancing playhead cannot lie.
+let lastPos = -1;
+let lastMoveAt = 0;
 function onPlayhead(ph: Playhead) {
   lastPlayhead = ph;
   const pct = ph.duration > 0 ? (ph.position / ph.duration) * 100 : 0;
   barEl.style.width = `${Math.min(100, pct)}%`;
   tCur.textContent = fmt(ph.position);
   tDur.textContent = fmt(ph.duration);
-  playIcon.hidden = !ph.paused;
-  pauseIcon.hidden = ph.paused;
+
+  const now = Date.now();
+  if (Math.abs(ph.position - lastPos) > 0.05) {
+    lastPos = ph.position;
+    lastMoveAt = now;
+    playIcon.hidden = true;
+    pauseIcon.hidden = false;
+  } else if (now - lastMoveAt > 1600) {
+    playIcon.hidden = false;
+    pauseIcon.hidden = true;
+  }
   highlightLine(ph.position);
 }
 
