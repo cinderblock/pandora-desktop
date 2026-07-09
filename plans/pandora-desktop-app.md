@@ -224,6 +224,16 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
   written; 2min timeouts) — use `powershell.exe -NoProfile` via Bash for quick things, and don't
   rely on screenshots; use Rust-side event tracing + user screenshots instead.
 
+## Round 8 (2026-07-09)
+- Icon fix CONFIRMED by user ("finally kinda works") → polish: 2s optimistic grace kills the
+  pause flicker; art preload+crossfade kills the stale-art flash (v0.2.1, user confirms fixed).
+- Old Pandora 0.1.0 uninstalled for user (reg entry + files gone). GOTCHA: NSIS uninstaller
+  killed the RUNNING JARLID — both binaries were the template's `app.exe` and Tauri NSIS
+  uninstallers kill processes by binary name. Fixed permanently in v0.2.2: crate/lib/binary
+  renamed to `jarlid` (jarlid.exe in Task Manager). Uninstall trick that worked in sandbox:
+  `cmd //c start //wait "" uninstall.exe //S "_?=<installdir>"` (plain /S spawn never ran).
+- User already on installed Jarlid (dev instances keep dying with sessions — that's fine).
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.

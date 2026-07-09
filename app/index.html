@@ -13,7 +13,8 @@
     <div id="scrim"></div>
 
     <div id="version"></div>
-    <button id="engine-btn" title="Show/hide the Pandora engine window (Ctrl+Shift+E)">
+    <div id="tooltip" hidden></div>
+    <button id="engine-btn">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18"/></svg>
     </button>
 
@@ -44,7 +45,7 @@
         </div>
         <div class="meta">
           <div id="station-wrap">
-            <button id="station" title="Switch station"></button>
+            <button id="station"></button>
             <div id="station-panel" hidden>
               <input id="station-search" type="text" placeholder="Search stations…" spellcheck="false" />
               <div id="station-list"></div>
@@ -62,25 +63,25 @@
         </div>
 
         <div class="controls">
-          <button id="thumbDown" class="icon" title="Thumbs down">
+          <button id="thumbDown" class="icon">
             <svg viewBox="0 0 24 24"><path d="M10 15V19a3 3 0 0 0 3 3l4-9V2H5.7a2 2 0 0 0-2 1.7l-1.4 9A2 2 0 0 0 4.3 15H10zM17 2h2.7A2.3 2.3 0 0 1 22 4.3v6.4A2.3 2.3 0 0 1 19.7 13H17"/></svg>
           </button>
-          <button id="replay" class="icon" title="Replay">
+          <button id="replay" class="icon">
             <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
           </button>
-          <button id="play" class="icon big" title="Play/Pause">
+          <button id="play" class="icon big">
             <svg id="play-icon" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>
             <svg id="pause-icon" viewBox="0 0 24 24" hidden><path d="M7 4h4v16H7zM13 4h4v16h-4z"/></svg>
           </button>
-          <button id="skip" class="icon" title="Skip">
+          <button id="skip" class="icon">
             <svg viewBox="0 0 24 24"><path d="M5 4l11 8-11 8z"/><path d="M18 4h2v16h-2z"/></svg>
           </button>
-          <button id="thumbUp" class="icon" title="Thumbs up">
+          <button id="thumbUp" class="icon">
             <svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.3a2 2 0 0 0 2-1.7l1.4-9A2 2 0 0 0 19.7 9H14zM7 22H4.3A2.3 2.3 0 0 1 2 19.7v-6.4A2.3 2.3 0 0 1 4.3 11H7"/></svg>
           </button>
         </div>
 
-        <div id="history" title="Recently played"></div>
+        <div id="history"></div>
       </section>
 
       <section class="lyrics-pane">

@@ -196,15 +196,29 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") histModal.hidden = true;
 });
 
+// Custom tooltip (no native title= tooltips anywhere in this app).
+const tooltip = $("tooltip");
+function attachTip(el: HTMLElement, text: () => string) {
+  el.addEventListener("mouseenter", () => {
+    tooltip.textContent = text();
+    tooltip.hidden = false;
+    const r = el.getBoundingClientRect();
+    const x = Math.max(8, Math.min(r.left + r.width / 2 - tooltip.offsetWidth / 2, innerWidth - tooltip.offsetWidth - 8));
+    tooltip.style.left = `${x}px`;
+    tooltip.style.top = `${Math.max(4, r.top - tooltip.offsetHeight - 10)}px`;
+  });
+  el.addEventListener("mouseleave", () => (tooltip.hidden = true));
+}
+
 function renderHistory() {
   histEl.innerHTML = "";
   for (const h of history) {
     const img = new Image();
     img.src = h.art;
-    img.title = `${h.title} — ${h.artist}`;
     img.className = "hist-item";
     img.loading = "lazy";
     img.addEventListener("click", () => openHistModal(h));
+    attachTip(img, () => `${h.title} — ${h.artist}`);
     histEl.appendChild(img);
   }
 }
