@@ -38,7 +38,7 @@ const titleEl = $("title");
 const titleInner = $("title-inner");
 const artistEl = $("artist");
 const albumEl = $("album");
-const stationEl = $("station");
+const stationEl = $<HTMLSelectElement>("station");
 const barEl = $("bar");
 const tCur = $("t-cur");
 const tDur = $("t-dur");
@@ -140,7 +140,11 @@ async function onNowPlaying(np: NowPlaying) {
   );
   artistEl.textContent = np.artist || "";
   albumEl.textContent = np.album || "";
-  stationEl.textContent = np.station || "";
+  // stations event owns the dropdown; until it arrives, show the active station
+  if (stationEl.options.length === 0 && np.station) {
+    const opt = new Option(np.station, np.station, true, true);
+    stationEl.appendChild(opt);
+  }
   setThumbs(np.thumbUp, np.thumbDown);
 
   const art = np.art || np.artFallback;
@@ -214,7 +218,13 @@ function onPlayhead(ph: Playhead) {
 
 // ---- controls ----------------------------------------------------------
 const cmd = (c: string) => invoke("player_cmd", { cmd: c }).catch(() => {});
-$("play").addEventListener("click", () => cmd("toggle"));
+$("play").addEventListener("click", () => {
+  // optimistic flip for instant feedback; playhead events correct it if wrong
+  const wasPaused = !playIcon.hidden;
+  playIcon.hidden = wasPaused;
+  pauseIcon.hidden = !wasPaused;
+  cmd("toggle");
+});
 $("skip").addEventListener("click", () => cmd("skip"));
 $("replay").addEventListener("click", () => cmd("replay"));
 thumbUpBtn.addEventListener("click", () => cmd("thumbUp"));
@@ -222,11 +232,30 @@ thumbDownBtn.addEventListener("click", () => cmd("thumbDown"));
 $("open-engine").addEventListener("click", () =>
   invoke("show_engine", { visible: true }).catch(() => {})
 );
-// Escape hatch: reveal the hidden engine window (for re-login / debugging).
+$("engine-btn").addEventListener("click", () =>
+  invoke("toggle_engine").catch(() => {})
+);
+// Keyboard escape hatch for the same toggle.
 window.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "e") {
-    invoke("show_engine", { visible: true }).catch(() => {});
+    invoke("toggle_engine").catch(() => {});
   }
+});
+
+// ---- station switching --------------------------------------------------
+let stationNames: string[] = [];
+stationEl.addEventListener("change", () => {
+  const idx = stationEl.selectedIndex;
+  if (idx >= 0 && idx < stationNames.length) cmd(`station:${idx}`);
+});
+listen<{ stations: string[]; active: string }>("engine://stations", (e) => {
+  const { stations, active } = e.payload;
+  if (!stations.length) return;
+  stationNames = stations;
+  stationEl.innerHTML = "";
+  stations.forEach((name, i) => {
+    stationEl.appendChild(new Option(name, String(i), false, name === active));
+  });
 });
 
 // ---- title marquee: hover to scrub a long title with the mouse x-position ----

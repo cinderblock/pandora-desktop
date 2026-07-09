@@ -122,6 +122,7 @@
     };
     // Include art in the key: Pandora updates the art element slightly after the
     // title, so a title-only key would leave stale art on screen.
+    collectStations();
     var key = data.title + "|" + data.artist + "|" + data.album + "|" + data.art;
     if (key !== lastKey) {
       lastKey = key;
@@ -131,6 +132,25 @@
       emit("engine://thumbs", { thumbUp: data.thumbUp, thumbDown: data.thumbDown });
     }
     updateMediaSession(data);
+  }
+
+  // ---- stations -----------------------------------------------------------
+  var lastStations = "";
+  function stationEls() {
+    return document.querySelectorAll('[data-qa="now_playing_station_list_station"]');
+  }
+  function collectStations() {
+    var els = stationEls();
+    var names = [];
+    for (var i = 0; i < els.length; i++) {
+      names.push((els[i].textContent || "").trim());
+    }
+    var payload = { stations: names, active: txt("station") };
+    var s = JSON.stringify(payload);
+    if (s !== lastStations) {
+      lastStations = s;
+      emit("engine://stations", payload);
+    }
   }
 
   function attrPressed(name) {
@@ -216,7 +236,15 @@
       case "replay": click("replay"); break;
       case "thumbUp": click("up"); break;
       case "thumbDown": click("down"); break;
-      default: break;
+      default:
+        // "station:<index>" — click the nth station in Pandora's station rail
+        if (name.indexOf("station:") === 0) {
+          var idx = parseInt(name.slice(8), 10);
+          var els = stationEls();
+          if (els[idx]) els[idx].click();
+          else LOG("station index out of range", idx, els.length);
+        }
+        break;
     }
     setTimeout(snapshot, 150);
     setTimeout(reflectPlaybackState, 150);

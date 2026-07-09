@@ -160,6 +160,22 @@ fn player_cmd(app: tauri::AppHandle, cmd: String) -> Result<(), String> {
     engine.eval(&js).map_err(|e| e.to_string())
 }
 
+/// Toggle the engine window's visibility. Returns the new visibility.
+#[tauri::command]
+fn toggle_engine(app: tauri::AppHandle) -> Result<bool, String> {
+    let w = app
+        .get_webview_window("engine")
+        .ok_or_else(|| "engine window not found".to_string())?;
+    let visible = w.is_visible().unwrap_or(false);
+    if visible {
+        let _ = w.hide();
+    } else {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    Ok(!visible)
+}
+
 /// Show or hide the raw Pandora engine window (used for login / debugging).
 #[tauri::command]
 fn show_engine(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
@@ -190,7 +206,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             fetch_lyrics,
             player_cmd,
-            show_engine
+            show_engine,
+            toggle_engine
         ])
         .setup(|app| {
             let bridge = include_str!("../bridge.js");

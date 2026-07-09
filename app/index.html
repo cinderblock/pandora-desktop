@@ -12,6 +12,10 @@
     <div id="bg"></div>
     <div id="scrim"></div>
 
+    <button id="engine-btn" title="Show/hide the Pandora engine window (Ctrl+Shift+E)">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18"/></svg>
+    </button>
+
     <div id="login-hint" hidden>
       <div class="card">
         <h2>Sign in to Pandora</h2>
@@ -26,7 +30,7 @@
           <img id="art" alt="Album art" />
         </div>
         <div class="meta">
-          <div id="station"></div>
+          <select id="station" title="Switch station"></select>
           <h1 id="title"><span id="title-inner">—</span></h1>
           <div id="artist"></div>
           <div id="album"></div>

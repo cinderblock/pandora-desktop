@@ -170,12 +170,24 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
   (unreliable). Added `[bridge] cmd:` + `v3` version logging to confirm which bridge runs and
   whether commands arrive. NEEDS USER TEST + engine console check.
 
+## Round 4 (2026-07-09): user feedback → features
+- Play/pause WORKS (confirmed) but icon didn't flip on click → optimistic icon flip in click
+  handler (playhead events correct it within 500ms if wrong).
+- Station picker: #station label is now a <select>; bridge collectStations() scrapes
+  `[data-qa=now_playing_station_list_station]` rail, emits engine://stations {stations, active};
+  UI onchange → cmd "station:<idx>" → bridge clicks nth rail item. (Full station browse/search
+  still available in the engine window itself.)
+- Engine show/hide button: globe button top-right (#engine-btn) + Ctrl+Shift+E both call new Rust
+  `toggle_engine` command (uses w.is_visible()).
+- Release build kicked off (`bun run tauri build`) so user gets a double-clickable exe/installer:
+  binary at app/src-tauri/target/release/app.exe, installers under
+  app/src-tauri/target/release/bundle/ (nsis/msi). VERIFY build succeeds + record paths.
+
 ## Queued (user requests, not yet done)
-- Title marquee: hover a long title to scroll it; mouse x-position scrubs the text ahead/behind so
-  you can jump to the end without waiting. Frontend-only (title is currently 2-line clamp+ellipsis;
-  change to single-line scrub-on-hover). Do after lyrics/play confirmed.
+- Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.
 - Confirm Windows SMTC works (media keys / volume flyout).
+- Lyrics matching for parenthetical titles: VERIFY round-3 fix with user.
 
 ## Publish (2026-07-08)
 - Target: https://github.com/cinderblock/pandora-desktop, MIT license, public.
