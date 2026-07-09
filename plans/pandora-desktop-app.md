@@ -209,6 +209,21 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
   session; no vite on :1420). Frontend changes require `bun run tauri build` + reinstall to
   reach them. Dev-mode tip: taskkill app.exe does NOT kill vite (port 1420) or vice versa.
 
+## Round 7 (2026-07-09): ICON BUG SOLVED + Jarlid rename
+- **Play/pause icon root cause (after 5 failed backend fixes): the glyphs are SVG elements and
+  SVGElement has NO `.hidden` property — `playIcon.hidden = x` was a silent no-op expando.**
+  The state pipeline was fine all along (proven via dev-only Rust playhead tracing: positions
+  advance while playing, freeze when paused). Fix: toggle the `hidden` ATTRIBUTE
+  (setAttribute/removeAttribute) — attribute selectors apply to any element. LESSON: when a UI
+  element refuses to change across multiple "correct" fixes, verify the DOM write actually works.
+- App renamed **Jarlid** (user chose; trademark safety). productName/window title/index title/
+  README. **Identifier deliberately kept** `com.camer.pandora-desktop` → preserves WebView2
+  login + localStorage. Repo left as `pandora-desktop` (descriptive; rename optional).
+- v0.2.0; version badge bottom-right of UI (know which build is running); Space toggles playback.
+- Env gotchas: PowerShell tool calls + screen-capture script hang in this sandbox (no PNG ever
+  written; 2min timeouts) — use `powershell.exe -NoProfile` via Bash for quick things, and don't
+  rely on screenshots; use Rust-side event tracing + user screenshots instead.
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.

@@ -148,14 +148,7 @@ async function onNowPlaying(np: NowPlaying) {
   if (np.station) stationBtn.textContent = np.station;
   setThumbs(np.thumbUp, np.thumbDown);
 
-  const art = np.art || np.artFallback;
-  if (art) {
-    artEl.src = art;
-    artEl.onerror = () => {
-      if (np.artFallback && artEl.src !== np.artFallback) artEl.src = np.artFallback;
-    };
-    bg.style.backgroundImage = `url("${art}")`;
-  }
+  setArt(np.art || np.artFallback, np.artFallback);
 
   const key = `${np.title}|${np.artist}|${np.album}`;
   if (key !== currentKey) {
@@ -237,6 +230,29 @@ histEl.addEventListener(
   { passive: false }
 );
 
+// Preload art off-screen, then fade it in — avoids broken-image flashes and
+// softens the stale-art-then-correct-art swap Pandora's DOM produces on load.
+let artToken = 0;
+function setArt(url: string, fallback: string) {
+  if (!url || artEl.src === url) return;
+  const token = ++artToken;
+  const img = new Image();
+  img.onload = () => {
+    if (token !== artToken) return; // newer art superseded this one
+    artEl.style.opacity = "0";
+    setTimeout(() => {
+      if (token !== artToken) return;
+      artEl.src = url;
+      bg.style.backgroundImage = `url("${url}")`;
+      artEl.style.opacity = "1";
+    }, 180);
+  };
+  img.onerror = () => {
+    if (token === artToken && fallback && fallback !== url) setArt(fallback, "");
+  };
+  img.src = url;
+}
+
 function setThumbs(up: boolean, down: boolean) {
   thumbUpBtn.classList.toggle("active", !!up);
   thumbDownBtn.classList.toggle("active", !!down);
@@ -293,8 +309,8 @@ function onPlayhead(ph: Playhead) {
   if (Math.abs(ph.position - lastPos) > 0.05) {
     lastPos = ph.position;
     lastMoveAt = now;
-    setPlayingIcon(true);
-  } else if (now - lastMoveAt > 1600) {
+    if (now >= optimisticUntil) setPlayingIcon(true);
+  } else if (now - lastMoveAt > 1600 && now >= optimisticUntil) {
     setPlayingIcon(false);
   }
   highlightLine(ph.position);
@@ -316,9 +332,12 @@ function setPlayingIcon(playing: boolean) {
   }
 }
 
+// After a click, in-flight playhead ticks still carry pre-toggle motion; hold
+// the optimistic state briefly so the icon doesn't flicker before settling.
+let optimisticUntil = 0;
 function togglePlayback() {
-  // optimistic flip for instant feedback; playhead events correct it if wrong
   setPlayingIcon(!uiPlaying);
+  optimisticUntil = Date.now() + 2000;
   cmd("toggle");
 }
 $("play").addEventListener("click", togglePlayback);
