@@ -234,6 +234,16 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
   `cmd //c start //wait "" uninstall.exe //S "_?=<installdir>"` (plain /S spawn never ran).
 - User already on installed Jarlid (dev instances keep dying with sessions — that's fine).
 
+## Round 9 (2026-07-09): reliability
+- User had to manually refresh a wedged engine page ("just had to refresh... to get my player
+  back"). v0.2.3: bridge emits engine://heartbeat every 5s; Rust watchdog thread reloads
+  pandora.com in the engine if silent >30s (w.navigate). Bridge also auto-clicks Pandora's
+  "still listening?" long-session prompt (text-match scan every 4s).
+- Cause of the wedge unknown (renderer crash vs Pandora stall) — if reload-loops appear in the
+  wild, next step is logging what state the page was in before reload.
+- Tooltips: all native title= removed per user rule (saved to memory: no-native-title-tooltips);
+  custom attachTip() tooltip on history thumbs.
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.

@@ -147,17 +147,118 @@ fn from_lrclib(v: &serde_json::Value, source: &str) -> Lyrics {
 }
 
 /// Drive the Pandora engine webview by calling the injected bridge.
-#[tauri::command]
-fn player_cmd(app: tauri::AppHandle, cmd: String) -> Result<(), String> {
+fn engine_cmd(app: &tauri::AppHandle, cmd: &str) -> Result<(), String> {
     let engine = app
         .get_webview_window("engine")
         .ok_or_else(|| "engine window not found".to_string())?;
-    let arg = serde_json::to_string(&cmd).unwrap_or_else(|_| "\"\"".into());
+    let arg = serde_json::to_string(cmd).unwrap_or_else(|_| "\"\"".into());
     let js = format!(
         "window.__PANDORA_BRIDGE__ && window.__PANDORA_BRIDGE__.cmd({});",
         arg
     );
     engine.eval(&js).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn player_cmd(app: tauri::AppHandle, cmd: String) -> Result<(), String> {
+    engine_cmd(&app, &cmd)
+}
+
+/// Native Windows SMTC (media keys, volume-flyout / lock-screen media panel).
+/// WebView2 does not bridge the page's MediaSession to Windows, so we own the
+/// media session from Rust: bridge events feed metadata/state in, and SMTC
+/// button presses drive the engine.
+#[cfg(windows)]
+fn setup_media_controls(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use souvlaki::{
+        MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition,
+        PlatformConfig,
+    };
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    let main = app
+        .get_webview_window("main")
+        .ok_or("main window not found")?;
+    let hwnd = main.hwnd()?.0 as *mut std::ffi::c_void;
+
+    let mut controls = MediaControls::new(PlatformConfig {
+        dbus_name: "jarlid",
+        display_name: "Jarlid",
+        hwnd: Some(hwnd),
+    })
+    .map_err(|e| format!("SMTC init: {e:?}"))?;
+
+    let handle = app.handle().clone();
+    controls
+        .attach(move |event: MediaControlEvent| {
+            let cmd = match event {
+                MediaControlEvent::Play => "play",
+                MediaControlEvent::Pause => "pause",
+                MediaControlEvent::Toggle => "toggle",
+                MediaControlEvent::Next => "skip",
+                MediaControlEvent::Previous => "replay",
+                MediaControlEvent::Stop => "pause",
+                _ => return,
+            };
+            let _ = engine_cmd(&handle, cmd);
+        })
+        .map_err(|e| format!("SMTC attach: {e:?}"))?;
+
+    let controls = Arc::new(Mutex::new(controls));
+
+    // Track metadata from the bridge.
+    let c_meta = controls.clone();
+    app.listen_any("engine://nowplaying", move |event| {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+            return;
+        };
+        let s = |k: &str| v.get(k).and_then(|x| x.as_str()).filter(|x| !x.is_empty());
+        let mut c = c_meta.lock().unwrap();
+        let _ = c.set_metadata(MediaMetadata {
+            title: s("title"),
+            artist: s("artist"),
+            album: s("album"),
+            cover_url: s("artFallback").or_else(|| s("art")),
+            duration: None,
+        });
+    });
+
+    // Playback state, motion-derived from the playhead (same logic as the UI:
+    // Pandora's DOM and audio elements misreport paused, position motion doesn't).
+    let c_play = controls.clone();
+    let motion = Arc::new(Mutex::new((f64::MIN, Instant::now(), false, Instant::now())));
+    app.listen_any("engine://playhead", move |event| {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+            return;
+        };
+        let pos = v.get("position").and_then(|x| x.as_f64()).unwrap_or(0.0);
+        let now = Instant::now();
+        let mut m = motion.lock().unwrap();
+        let (ref mut last_pos, ref mut last_move, ref mut playing, ref mut last_sent) = *m;
+        let mut new_playing = *playing;
+        if (pos - *last_pos).abs() > 0.05 {
+            *last_pos = pos;
+            *last_move = now;
+            new_playing = true;
+        } else if now.duration_since(*last_move) > Duration::from_millis(1600) {
+            new_playing = false;
+        }
+        // Update SMTC on state change, or every 5s to keep progress fresh.
+        if new_playing != *playing || now.duration_since(*last_sent) > Duration::from_secs(5) {
+            *playing = new_playing;
+            *last_sent = now;
+            let progress = Some(MediaPosition(Duration::from_secs_f64(pos.max(0.0))));
+            let state = if new_playing {
+                MediaPlayback::Playing { progress }
+            } else {
+                MediaPlayback::Paused { progress }
+            };
+            let _ = c_play.lock().unwrap().set_playback(state);
+        }
+    });
+
+    Ok(())
 }
 
 /// Toggle the engine window's visibility. Returns the new visibility.
@@ -196,9 +297,11 @@ pub fn run() {
     // crash fixed by disabling GPU acceleration (that, not the autoplay flag, was the
     // cause). With GPU disabled, the autoplay-policy flag is safe and lets the UI's play
     // button start audio in the hidden engine without an in-page user gesture.
+    // HardwareMediaKeyHandling is disabled so WebView2 can't intercept media keys —
+    // the native SMTC session (souvlaki) owns them instead.
     std::env::set_var(
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-        "--disable-gpu --disable-gpu-compositing --autoplay-policy=no-user-gesture-required",
+        "--disable-gpu --disable-gpu-compositing --autoplay-policy=no-user-gesture-required --disable-features=HardwareMediaKeyHandling",
     );
 
     tauri::Builder::default()
@@ -248,6 +351,12 @@ pub fn run() {
                     let _ = w.hide();
                 }
             });
+
+            // Native Windows media session (media keys + volume-flyout panel).
+            #[cfg(windows)]
+            if let Err(e) = setup_media_controls(app) {
+                eprintln!("[smtc] setup failed: {e}");
+            }
 
             // Watchdog: the bridge emits engine://heartbeat every 5s. If the engine
             // page wedges (renderer crash, stuck navigation), heartbeats stop and we
