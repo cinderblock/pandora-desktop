@@ -292,6 +292,22 @@
 
     setInterval(emitPlayhead, 500);
     setInterval(snapshot, 3000); // safety net
+    // Heartbeat lets the host detect a dead/wedged page and auto-reload it.
+    setInterval(function () {
+      emit("engine://heartbeat", { t: 1 });
+    }, 5000);
+    // Pandora pauses long sessions behind a "Still listening?" prompt — keep going.
+    setInterval(function () {
+      var btns = document.querySelectorAll("button");
+      for (var i = 0; i < btns.length; i++) {
+        var t = (btns[i].textContent || "").trim();
+        if (/still listening|keep listening|i'?m listening|continue listening/i.test(t)) {
+          LOG("auto-clicking still-listening prompt:", t);
+          btns[i].click();
+          return;
+        }
+      }
+    }, 4000);
     snapshot();
     emit("engine://ready", { ready: true });
     LOG("started; hasTitle:", !!txt("title"), "loginPage:", isLoginPage());

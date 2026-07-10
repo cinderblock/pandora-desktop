@@ -249,6 +249,31 @@ pub fn run() {
                 }
             });
 
+            // Watchdog: the bridge emits engine://heartbeat every 5s. If the engine
+            // page wedges (renderer crash, stuck navigation), heartbeats stop and we
+            // reload pandora.com automatically instead of requiring a manual refresh.
+            {
+                use std::sync::{Arc, Mutex};
+                use std::time::{Duration, Instant};
+                let last_beat = Arc::new(Mutex::new(Instant::now()));
+                let beat = last_beat.clone();
+                app.listen_any("engine://heartbeat", move |_| {
+                    *beat.lock().unwrap() = Instant::now();
+                });
+                let handle = app.handle().clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(Duration::from_secs(10));
+                    let silent = last_beat.lock().unwrap().elapsed();
+                    if silent > Duration::from_secs(30) {
+                        eprintln!("[watchdog] engine silent for {silent:?} — reloading");
+                        if let Some(w) = handle.get_webview_window("engine") {
+                            let _ = w.navigate("https://www.pandora.com".parse().unwrap());
+                        }
+                        *last_beat.lock().unwrap() = Instant::now();
+                    }
+                });
+            }
+
             // Dev-only: trace playhead events so the engine→host pipeline is
             // observable in the dev log (every ~5s).
             #[cfg(debug_assertions)]
