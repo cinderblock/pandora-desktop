@@ -403,6 +403,20 @@ button.icon.big:hover {
   font-size: 0.7rem;
   color: var(--faint);
   margin-bottom: 14px;
+  transform-origin: left center;
+}
+#lyrics-status.flash {
+  animation: status-flash 0.7s ease-out;
+}
+@keyframes status-flash {
+  0% {
+    color: var(--fg);
+    transform: scale(1.3);
+  }
+  100% {
+    color: var(--faint);
+    transform: scale(1);
+  }
 }
 #lyrics {
   overflow-y: auto;

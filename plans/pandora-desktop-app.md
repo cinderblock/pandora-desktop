@@ -280,6 +280,18 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
 - This also RESOLVES the old mystery: first-session probe saw play_button+aria"Play" while
   "playing" — that snapshot was during BUFFERING. All state signals reconciled now.
 
+## Round 13 (2026-07-10): v0.3.3 — lyrics quality + SMTC↔UI latency
+- UI lagged behind media-key presses → SMTC callback now emits `player://optimistic`
+  {playing}; main.ts flips icon instantly + 2s grace (third use of the optimistic pattern).
+- Lyrics cache: disk cache under app_cache_dir/lyrics/<fnv64>.json keyed artist|track|album
+  (lowercased). Hits marked "(cached)". Misses NOT cached (retry later).
+- Out-of-sync lyrics root cause: lookup fired before the new track's duration was known
+  (playhead still on old track) → duration matching skipped → wrong song EDIT chosen from
+  LRCLIB. loadLyrics now awaits waitForDuration (≤2.5s, needs pos<30s+pos<dur) before querying.
+- Manual sync nudge: [ / ] = ±0.25s, persisted per track (localStorage syncoff:<key>), offset
+  shown in lyrics-status. User asked "am I overthinking?" — no: version-selection was real
+  (fixed above); nudge covers LRCLIB's own timing variance.
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.

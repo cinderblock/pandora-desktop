@@ -465,21 +465,31 @@ titleEl.addEventListener("mouseleave", () => {
 });
 
 // ---- lyric sync nudge: [ = earlier, ] = later (0.25s steps, per-track) ----
+function flashStatus(text: string) {
+  lyricsStatus.textContent = text;
+  lyricsStatus.classList.remove("flash");
+  void lyricsStatus.offsetWidth; // restart the animation
+  lyricsStatus.classList.add("flash");
+}
 function nudgeSync(delta: number) {
-  if (!syncedLines) return;
+  if (!syncedLines) {
+    flashStatus("No synced lyrics to nudge");
+    return;
+  }
   syncOffset = Math.round((syncOffset + delta) * 100) / 100;
   localStorage.setItem(`syncoff:${currentKey}`, String(syncOffset));
   activeLineIdx = -1; // force re-highlight
   highlightLine(lastPlayhead.position);
-  lyricsStatus.textContent =
+  flashStatus(
     syncOffset === 0
-      ? "Synced lyrics"
-      : `Synced lyrics · offset ${syncOffset > 0 ? "+" : ""}${syncOffset.toFixed(2)}s`;
+      ? "Synced lyrics · offset cleared"
+      : `Synced lyrics · offset ${syncOffset > 0 ? "+" : ""}${syncOffset.toFixed(2)}s`
+  );
 }
 window.addEventListener("keydown", (e) => {
   if ((e.target as HTMLElement).tagName === "INPUT") return;
-  if (e.key === "[") nudgeSync(-0.25);
-  if (e.key === "]") nudgeSync(0.25);
+  if (e.key === "[" || e.code === "BracketLeft") nudgeSync(-0.25);
+  else if (e.key === "]" || e.code === "BracketRight") nudgeSync(0.25);
 });
 
 // SMTC (media keys / Windows panel) pressed: reflect the state immediately
