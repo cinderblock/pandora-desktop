@@ -112,11 +112,15 @@ function renderPlainLyrics(text: string) {
   }
 }
 
+// Manual lyric sync offset (seconds), per-track, persisted. Nudge with [ and ].
+let syncOffset = 0;
+
 function highlightLine(position: number) {
   if (!syncedLines || syncedLines.length === 0) return;
+  const p = position + syncOffset;
   let idx = -1;
   for (let i = 0; i < syncedLines.length; i++) {
-    if (syncedLines[i].t <= position + 0.15) idx = i;
+    if (syncedLines[i].t <= p + 0.15) idx = i;
     else break;
   }
   if (idx === activeLineIdx) return;
@@ -155,9 +159,24 @@ async function onNowPlaying(np: NowPlaying) {
     currentKey = key;
     syncedLines = null;
     activeLineIdx = -1;
+    syncOffset = parseFloat(localStorage.getItem(`syncoff:${key}`) || "0") || 0;
     pushHistory(np);
     await loadLyrics(np);
   }
+}
+
+// Wait briefly for the NEW track's duration before looking up lyrics — the
+// fetch fires on title change, before the playhead reflects the new track,
+// and without a duration LRCLIB version-matching can pick the wrong edit.
+async function waitForDuration(key: string): Promise<number | null> {
+  const t0 = Date.now();
+  while (Date.now() - t0 < 2500) {
+    if (currentKey !== key) return null; // track changed under us
+    const d = lastPlayhead.duration;
+    if (d > 0 && lastPlayhead.position < d && lastPlayhead.position < 30) return d;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return lastPlayhead.duration > 0 ? lastPlayhead.duration : null;
 }
 
 // ---- recently-played gallery -------------------------------------------
@@ -276,11 +295,14 @@ async function loadLyrics(np: NowPlaying) {
   lyricsStatus.textContent = "Loading lyrics…";
   lyricsEl.innerHTML = "";
   try {
+    const key = `${np.title}|${np.artist}|${np.album}`;
+    const duration = await waitForDuration(key);
+    if (currentKey !== key) return;
     const res = await invoke<Lyrics>("fetch_lyrics", {
       artist: np.artist,
       track: np.title,
       album: np.album || null,
-      duration: lastPlayhead.duration || null,
+      duration,
     });
     // Ignore if the track changed while we were fetching.
     if (`${np.title}|${np.artist}|${np.album}` !== currentKey) return;
@@ -440,6 +462,31 @@ titleEl.addEventListener("mousemove", (e) => {
 });
 titleEl.addEventListener("mouseleave", () => {
   titleInner.style.transform = "translateX(0)";
+});
+
+// ---- lyric sync nudge: [ = earlier, ] = later (0.25s steps, per-track) ----
+function nudgeSync(delta: number) {
+  if (!syncedLines) return;
+  syncOffset = Math.round((syncOffset + delta) * 100) / 100;
+  localStorage.setItem(`syncoff:${currentKey}`, String(syncOffset));
+  activeLineIdx = -1; // force re-highlight
+  highlightLine(lastPlayhead.position);
+  lyricsStatus.textContent =
+    syncOffset === 0
+      ? "Synced lyrics"
+      : `Synced lyrics · offset ${syncOffset > 0 ? "+" : ""}${syncOffset.toFixed(2)}s`;
+}
+window.addEventListener("keydown", (e) => {
+  if ((e.target as HTMLElement).tagName === "INPUT") return;
+  if (e.key === "[") nudgeSync(-0.25);
+  if (e.key === "]") nudgeSync(0.25);
+});
+
+// SMTC (media keys / Windows panel) pressed: reflect the state immediately
+// instead of waiting for motion confirmation.
+listen<{ playing: boolean }>("player://optimistic", (e) => {
+  setPlayingIcon(e.payload.playing);
+  optimisticUntil = Date.now() + 2000;
 });
 
 // ---- events from the engine bridge ------------------------------------

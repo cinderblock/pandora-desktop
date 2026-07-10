@@ -1,11 +1,24 @@
-use serde::Serialize;
-use tauri::{Listener, Manager, WebviewUrl, WebviewWindowBuilder};
+use serde::{Deserialize, Serialize};
+use tauri::{Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Deserialize, Default)]
 struct Lyrics {
     synced: Option<String>,
     plain: Option<String>,
     source: String,
+}
+
+/// Disk cache for LRCLIB responses (the service is slow). One JSON file per
+/// track under the app cache dir, keyed by FNV-1a of artist|track|album.
+fn lyrics_cache_path(app: &tauri::AppHandle, key: &str) -> Option<std::path::PathBuf> {
+    let dir = app.path().app_cache_dir().ok()?.join("lyrics");
+    std::fs::create_dir_all(&dir).ok()?;
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in key.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    Some(dir.join(format!("{h:016x}.json")))
 }
 
 /// Collapse a string that is exactly one part repeated 2-4 times (Pandora's
@@ -41,19 +54,37 @@ fn simplify_title(s: &str) -> String {
 /// `search`es, choosing the best synced result by closest duration.
 #[tauri::command]
 async fn fetch_lyrics(
+    app: tauri::AppHandle,
     artist: String,
     track: String,
     album: Option<String>,
     duration: Option<f64>,
 ) -> Result<Lyrics, String> {
+    let artist = undouble(&artist);
+    let track = undouble(&track);
+    let album = album.map(|a| undouble(&a));
+
+    // Cache first — LRCLIB is slow and lyrics for a given track don't change.
+    let cache_key = format!(
+        "{}|{}|{}",
+        artist.to_lowercase(),
+        track.to_lowercase(),
+        album.as_deref().unwrap_or("").to_lowercase()
+    );
+    let cache_file = lyrics_cache_path(&app, &cache_key);
+    if let Some(ref p) = cache_file {
+        if let Ok(bytes) = std::fs::read(p) {
+            if let Ok(mut hit) = serde_json::from_slice::<Lyrics>(&bytes) {
+                hit.source = format!("{} (cached)", hit.source);
+                return Ok(hit);
+            }
+        }
+    }
+
     let client = reqwest::Client::builder()
         .user_agent("PandoraDesktop (personal; https://github.com/cinderblock/pandora-desktop)")
         .build()
         .map_err(|e| e.to_string())?;
-
-    let artist = undouble(&artist);
-    let track = undouble(&track);
-    let album = album.map(|a| undouble(&a));
 
     // 1) exact match via /get (needs duration)
     if let Some(dur) = duration {
@@ -70,7 +101,7 @@ async fn fetch_lyrics(
         if let Ok(resp) = client.get("https://lrclib.net/api/get").query(&q).send().await {
             if resp.status().is_success() {
                 if let Ok(v) = resp.json::<serde_json::Value>().await {
-                    return Ok(from_lrclib(&v, "lrclib/get"));
+                    return Ok(cache_and_return(from_lrclib(&v, "lrclib/get"), &cache_file));
                 }
             }
         }
@@ -92,7 +123,10 @@ async fn fetch_lyrics(
             if resp.status().is_success() {
                 if let Ok(arr) = resp.json::<serde_json::Value>().await {
                     if let Some(best) = pick_best(&arr, duration) {
-                        return Ok(from_lrclib(best, &format!("lrclib/search/{label}")));
+                        return Ok(cache_and_return(
+                            from_lrclib(best, &format!("lrclib/search/{label}")),
+                            &cache_file,
+                        ));
                     }
                 }
             }
@@ -136,6 +170,18 @@ fn pick_best<'a>(
         let (sb, gb) = score(b);
         sa.cmp(&sb).then(ga.partial_cmp(&gb).unwrap_or(std::cmp::Ordering::Equal))
     })
+}
+
+/// Persist found lyrics to the cache (misses are not cached so they retry).
+fn cache_and_return(l: Lyrics, path: &Option<std::path::PathBuf>) -> Lyrics {
+    if l.synced.is_some() || l.plain.is_some() {
+        if let Some(p) = path {
+            if let Ok(json) = serde_json::to_vec(&l) {
+                let _ = std::fs::write(p, json);
+            }
+        }
+    }
+    l
 }
 
 fn from_lrclib(v: &serde_json::Value, source: &str) -> Lyrics {
@@ -221,6 +267,9 @@ fn setup_media_controls(app: &tauri::App) -> Result<(), Box<dyn std::error::Erro
             if let Some(p) = desired {
                 cb_playing.store(p, Ordering::Relaxed);
                 *cb_until.lock().unwrap() = Instant::now() + Duration::from_secs(2);
+                // Tell the UI immediately — its icon otherwise waits ~2s for
+                // motion-derived confirmation.
+                let _ = handle.emit("player://optimistic", serde_json::json!({ "playing": p }));
                 if let Some(c) = cb_cell.lock().unwrap().as_mut() {
                     let state = if p {
                         MediaPlayback::Playing { progress: None }
