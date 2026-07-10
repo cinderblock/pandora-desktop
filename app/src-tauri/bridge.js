@@ -30,6 +30,7 @@
     art: "album_active_image",
     artMini: "mini_track_image",
     play: "play_button",
+    pause: "pause_button",
     skip: "skip_button",
     replay: "replay_button",
     up: "thumbs_up_button",
@@ -185,16 +186,12 @@
     return el.getAttribute("aria-pressed") === "true" || el.classList.contains("is-active");
   }
 
-  // Pandora's own play button is the most reliable playing/paused signal: its
-  // aria-label reads "Pause" while playing and "Play" while paused. The <audio>
-  // elements lie during crossfade/preload.
+  // Pandora renders pause_button while playing and play_button while paused —
+  // the button that exists IS the state. (audio elements lie during crossfade.)
   function isPausedUi() {
-    var el = qa("play");
-    var aria = el ? el.getAttribute("aria-label") || "" : "";
-    if (/pause/i.test(aria)) return false;
-    if (/play/i.test(aria)) return true;
-    var a = audioEl();
-    return a ? a.paused : true;
+    if (qa("pause")) return false;
+    if (qa("play")) return true;
+    return !isActuallyPlaying();
   }
 
   // ---- playhead (for lyric sync) ----------------------------------------
@@ -249,21 +246,34 @@
     var el = qa(name);
     if (el) el.click();
   }
+  // Pandora swaps the button's data-qa between play_button (paused) and
+  // pause_button (playing) — target whichever exists.
+  function playPauseButton() {
+    return qa("play") || qa("pause");
+  }
+
   function cmd(name, arg) {
     LOG("cmd:", name);
     switch (name) {
       // Play/pause go through Pandora's own button: its logic always targets the
       // CURRENT track. Driving <audio> elements directly resurrected stale
       // leftover tracks after skips (play() on the wrong element).
-      case "play":
-        if (!isActuallyPlaying()) click("play");
+      case "play": {
+        var b1 = playPauseButton();
+        if (!isActuallyPlaying() && b1) b1.click();
         break;
-      case "pause":
-        if (isActuallyPlaying()) click("play");
+      }
+      case "pause": {
+        var b2 = playPauseButton();
+        if (isActuallyPlaying() && b2) b2.click();
         break;
-      case "toggle":
-        click("play");
+      }
+      case "toggle": {
+        var b3 = playPauseButton();
+        if (b3) b3.click();
+        else LOG("toggle: no play/pause button found");
         break;
+      }
       case "skip": click("skip"); break;
       case "replay": click("replay"); break;
       case "thumbUp": click("up"); break;

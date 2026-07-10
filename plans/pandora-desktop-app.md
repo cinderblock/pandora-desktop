@@ -257,6 +257,21 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
 - User asked for "play-pause buttons on the start menu" — the Win11 media panel (quick settings /
   volume flyout / lock screen) IS this SMTC integration; there is no separate start-menu media API.
 
+## Round 11 (2026-07-10): v0.3.1 — four user-reported bugs
+- **Stale-track resurrection** (skip→pause→wait→play resumed the OLD track): direct
+  `<audio>.play()` was hitting a leftover element from before the skips. REVERTED play/pause to
+  clicking Pandora's play_button (their logic targets the current track; the original reason for
+  abandoning clicks was the SVG icon bug, not the clicks). audioEl() now prefers NEWEST paused
+  element (reverse iteration) so position/duration don't read stale tracks either.
+- **Tripled titles** ("Red Wine Supernova"×3): marquee clones content 2-4x while ACTIVELY
+  SCROLLING (single .Marquee__wrapper__content query wasn't enough). bridge derepeat() collapses
+  k-times-repeated strings (k=2..4, recursive); Rust undouble() generalized the same way. This
+  also broke lyric lookup → user perceived it as "play/pause broke lyrics highlighting".
+- **SMTC 2-3s dead zone** after button press: Windows greys controls until the app reports its
+  new state; motion-derived reporting took ~2s. SMTC callback now reports expected state
+  IMMEDIATELY + 2s grace vs motion (mirror of the UI icon fix).
+- **Window position memory**: tauri-plugin-window-state 2.4.1, denylist ["engine"].
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.
