@@ -272,6 +272,14 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
   IMMEDIATELY + 2s grace vs motion (mirror of the UI icon fix).
 - **Window position memory**: tauri-plugin-window-state 2.4.1, denylist ["engine"].
 
+## Round 12 (2026-07-10): v0.3.2 — pause dead while playing
+- v0.3.1's click-the-button pause failed because **Pandora swaps the button's data-qa**:
+  `play_button` exists only while PAUSED, `pause_button` only while PLAYING. clicking qa("play")
+  during playback found nothing. Fix: playPauseButton() = qa(play) || qa(pause); isPausedUi() is
+  now simply "does pause_button exist" (cleanest state signal yet — supersedes aria/audio checks).
+- This also RESOLVES the old mystery: first-session probe saw play_button+aria"Play" while
+  "playing" — that snapshot was during BUFFERING. All state signals reconciled now.
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.
