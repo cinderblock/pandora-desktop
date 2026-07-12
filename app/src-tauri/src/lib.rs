@@ -609,15 +609,22 @@ pub fn run() {
                 use tauri_plugin_updater::UpdaterExt;
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
+                    // First check shortly after launch, then every 4 hours so
+                    // long-running instances still learn about new releases.
                     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                    let Ok(updater) = handle.updater() else { return };
-                    match updater.check().await {
-                        Ok(Some(update)) => {
-                            eprintln!("[updater] v{} available", update.version);
-                            let _ = handle.emit("app://update-available", update.version.clone());
+                    loop {
+                        if let Ok(updater) = handle.updater() {
+                            match updater.check().await {
+                                Ok(Some(update)) => {
+                                    eprintln!("[updater] v{} available", update.version);
+                                    let _ = handle
+                                        .emit("app://update-available", update.version.clone());
+                                }
+                                Ok(None) => {}
+                                Err(e) => eprintln!("[updater] check failed: {e}"),
+                            }
                         }
-                        Ok(None) => {}
-                        Err(e) => eprintln!("[updater] check failed: {e}"),
+                        tokio::time::sleep(std::time::Duration::from_secs(4 * 3600)).await;
                     }
                 });
             }

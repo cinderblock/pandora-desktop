@@ -349,6 +349,29 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
   API limit); remote display/lyrics work for any source; audio-capture streamer remains the
   only path past the ceiling (future).
 
+## Round 19 (2026-07-12): v0.6.0 — "all of it" batch
+- Repo renamed → github.com/cinderblock/jarlid (gh auto-updated local remote; old URL redirects).
+- GPU: `--use-angle=d3d11` replaces `--disable-gpu --disable-gpu-compositing`. WATCH for
+  STATUS_ACCESS_VIOLATION return → revert to disable-gpu.
+- Stations: bridge refreshStationList() POSTs /api/v1/station/getStations (X-CsrfToken from
+  cookie, same-origin creds; tries {"pageSize":500} then {}); emits ids alongside names;
+  UI picker uses `playStation:<id>` (location.assign /station/play/<id>) when ids exist,
+  rail-click fallback otherwise. UNVERIFIED against live session (Chrome tab was logged out —
+  400); bridge logs "[bridge] getStations ..." in engine console for diagnosis.
+- WiiM volume: RemoteState.volume (-1 = unknown/DLNA), slider in remote mode (debounced
+  vol:N), hidden when volume unreported. "prev" added (LinkPlay + AVTransport Previous).
+- SMTC remote routing: remote://state listener in SMTC setup owns metadata+playback when
+  remote_active (= remote playing && title && local motion >3s ago); callback routes buttons
+  to upnp::command (Previous→prev) vs engine_cmd; local playhead/nowplaying listeners stand
+  down while remote_active.
+- Updater: tauri-plugin-updater + process; startup check (release builds, 10s delay) emits
+  app://update-available → UI banner → install_update command (re-check, download_and_install,
+  restart). Signing: minisign keypair at ~/.tauri/jarlid.key(.pub) (NO password; PRIVATE KEY
+  ONLY THERE + gh secret TAURI_SIGNING_PRIVATE_KEY — do not lose/leak). Pubkey + endpoint
+  (releases/latest/download/latest.json) in tauri.conf plugins.updater;
+  bundle.createUpdaterArtifacts=true. CI: .github/workflows/release.yml on v* tags
+  (tauri-action, windows-latest, rust-cache). Tag v0.6.0 pushed → run 29211394389.
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.

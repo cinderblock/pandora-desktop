@@ -22,24 +22,32 @@
     return;
   }
 
+  // Each entry lists selector candidates in preference order: the big Now
+  // Playing page first, then the mini player / tuner bar that exists on every
+  // page — so detection keeps working when the engine sits on a deep page.
   var QA = {
-    title: "playing_track_title",
-    artist: "playing_artist_name",
-    album: "playing_album_name",
-    station: "station_active_name",
-    art: "album_active_image",
-    artMini: "mini_track_image",
-    play: "play_button",
-    pause: "pause_button",
-    skip: "skip_button",
-    replay: "replay_button",
-    up: "thumbs_up_button",
-    down: "thumbs_down_button",
-    volume: "volume_slider",
+    title: ["playing_track_title", "mini_track_title"],
+    artist: ["playing_artist_name", "mini_track_artist_name"],
+    album: ["playing_album_name"],
+    station: ["station_active_name"],
+    art: ["album_active_image"],
+    artMini: ["mini_track_image"],
+    play: ["play_button"],
+    pause: ["pause_button"],
+    skip: ["skip_button"],
+    replay: ["replay_button"],
+    up: ["thumbs_up_button"],
+    down: ["thumbs_down_button"],
+    volume: ["volume_slider"],
   };
 
   function qa(name) {
-    return document.querySelector('[data-qa="' + QA[name] + '"]');
+    var keys = QA[name];
+    for (var i = 0; i < keys.length; i++) {
+      var el = document.querySelector('[data-qa="' + keys[i] + '"]');
+      if (el) return el;
+    }
+    return null;
   }
   // Collapse a string that is exactly one part repeated k times ("AbcAbcAbc" →
   // "Abc"). Pandora's marquee clones its content 2-3x while scrolling.
@@ -123,6 +131,7 @@
 
   // ---- now-playing snapshot ---------------------------------------------
   var lastKey = "";
+  var lastMeta = { key: "", album: "", station: "" };
   var everHadTitle = false;
   function snapshot() {
     var title = txt("title");
@@ -137,11 +146,20 @@
     }
     everHadTitle = true;
     // Title present => the player is up. Never show the login card.
+    // On deep pages only the mini player exists (no album/station elements);
+    // reuse the last known values for the same track so keys don't churn.
+    var artist0 = txt("artist");
+    var album0 = txt("album");
+    var station0 = txt("station");
+    var taKey = title + "|" + artist0;
+    if (!album0 && lastMeta.key === taKey) album0 = lastMeta.album;
+    if (!station0) station0 = lastMeta.station;
+    lastMeta = { key: taKey, album: album0, station: station0 };
     var data = {
       title: title,
-      artist: txt("artist"),
-      album: txt("album"),
-      station: txt("station"),
+      artist: artist0,
+      album: album0,
+      station: station0,
       art: artUrl(1080),
       artFallback: artUrl(500),
       thumbUp: attrPressed("up"),
