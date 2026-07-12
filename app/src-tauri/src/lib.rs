@@ -220,7 +220,7 @@ async fn remote_cmd(
     ctl: tauri::State<'_, upnp::RemoteCtl>,
     cmd: String,
 ) -> Result<(), String> {
-    let client = reqwest::Client::new();
+    let client = upnp::device_client();
     upnp::command(&client, &ctl, &cmd).await
 }
 

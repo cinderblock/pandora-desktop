@@ -1,7 +1,9 @@
-//! Direct UPnP/DLNA MediaRenderer client (WiiM etc.): SSDP discovery, then
-//! AVTransport polling for now-playing metadata + live position, so the UI can
-//! show lyrics for whatever the network player is playing. No Home Assistant
-//! or other intermediary — we read the device itself.
+//! Direct network-player client for remote mode: discovers a MediaRenderer via
+//! SSDP, then reads now-playing state straight from the device. For LinkPlay
+//! devices (WiiM etc.) the native HTTP API is used — unlike plain DLNA
+//! AVTransport it reports metadata for the device's OWN sources (WiiM-app
+//! Pandora, presets, etc.), not just DLNA-pushed streams. AVTransport remains
+//! the fallback for generic renderers.
 
 use serde::Serialize;
 use std::sync::Arc;
@@ -24,9 +26,25 @@ pub struct RemoteState {
 }
 
 #[derive(Clone)]
+pub enum Target {
+    /// LinkPlay/WiiM native HTTP API, `base` like "https://192.168.1.50".
+    LinkPlay { base: String, name: String },
+    /// Generic DLNA AVTransport control endpoint.
+    Upnp { ctrl_url: String, name: String },
+}
+
+impl Target {
+    fn name(&self) -> &str {
+        match self {
+            Target::LinkPlay { name, .. } => name,
+            Target::Upnp { name, .. } => name,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct RemoteCtl {
-    /// (control_url, device_name) once a renderer is found.
-    pub target: Arc<tokio::sync::Mutex<Option<(String, String)>>>,
+    pub target: Arc<tokio::sync::Mutex<Option<Target>>>,
 }
 
 impl RemoteCtl {
@@ -37,9 +55,19 @@ impl RemoteCtl {
     }
 }
 
+pub fn device_client() -> reqwest::Client {
+    // WiiM firmware serves its API over HTTPS with a self-signed certificate.
+    reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .timeout(Duration::from_secs(4))
+        .build()
+        .unwrap_or_default()
+}
+
+// ---------- small parsing helpers ----------
+
 /// Extract the text content of the first `<tag>` or `<ns:tag>` element.
 fn tag_content(xml: &str, tag: &str) -> Option<String> {
-    // plain <tag>
     let open = format!("<{tag}>");
     if let Some(i) = xml.find(&open) {
         let s = i + open.len();
@@ -47,7 +75,6 @@ fn tag_content(xml: &str, tag: &str) -> Option<String> {
             return Some(xml[s..s + e].to_string());
         }
     }
-    // namespaced <ns:tag>
     let needle = format!(":{tag}>");
     let mut from = 0;
     while let Some(i) = xml[from..].find(&needle) {
@@ -81,6 +108,21 @@ fn hms_to_secs(s: &str) -> f64 {
         .fold(0.0, |acc, p| acc * 60.0 + p)
 }
 
+/// LinkPlay hex-encodes text fields ("426164" -> "Bad"). Non-hex passes through.
+fn hex_decode(s: &str) -> String {
+    let t = s.trim();
+    if t.len() % 2 != 0 || t.is_empty() || !t.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return t.to_string();
+    }
+    let bytes: Vec<u8> = (0..t.len())
+        .step_by(2)
+        .filter_map(|i| u8::from_str_radix(&t[i..i + 2], 16).ok())
+        .collect();
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+// ---------- discovery ----------
+
 /// Send an SSDP M-SEARCH and collect MediaRenderer description URLs (blocking).
 fn ssdp_search() -> Vec<String> {
     let mut found = Vec::new();
@@ -88,46 +130,58 @@ fn ssdp_search() -> Vec<String> {
         return found;
     };
     let _ = sock.set_read_timeout(Some(Duration::from_millis(500)));
-    let msearch = format!(
-        "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n"
-    );
+    let msearch = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n";
     for _ in 0..2 {
         let _ = sock.send_to(msearch.as_bytes(), ("239.255.255.250", 1900));
     }
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     let mut buf = [0u8; 2048];
     while std::time::Instant::now() < deadline {
-        match sock.recv_from(&mut buf) {
-            Ok((n, _)) => {
-                let resp = String::from_utf8_lossy(&buf[..n]);
-                for line in resp.lines() {
-                    let lower = line.to_lowercase();
-                    if let Some(rest) = lower.strip_prefix("location:") {
-                        let url = line[line.len() - rest.trim().len()..].trim().to_string();
-                        if !found.contains(&url) {
-                            found.push(url);
-                        }
+        if let Ok((n, _)) = sock.recv_from(&mut buf) {
+            let resp = String::from_utf8_lossy(&buf[..n]);
+            for line in resp.lines() {
+                let lower = line.to_lowercase();
+                if let Some(rest) = lower.strip_prefix("location:") {
+                    let url = line[line.len() - rest.trim().len()..].trim().to_string();
+                    if !found.contains(&url) {
+                        found.push(url);
                     }
                 }
             }
-            Err(_) => {}
         }
     }
     found
 }
 
-/// Fetch a device description and return (friendly_name, absolute AVTransport control URL).
-async fn probe_device(client: &reqwest::Client, location: &str) -> Option<(String, String)> {
-    let xml = client
-        .get(location)
-        .timeout(Duration::from_secs(4))
-        .send()
-        .await
-        .ok()?
-        .text()
-        .await
-        .ok()?;
+/// Probe one SSDP location. Prefers the LinkPlay native API when the device
+/// speaks it; otherwise returns a generic AVTransport target.
+async fn probe_device(client: &reqwest::Client, location: &str) -> Option<Target> {
+    let base_url = reqwest::Url::parse(location).ok()?;
+    let host = base_url.host_str()?.to_string();
+
+    let xml = client.get(location).send().await.ok()?.text().await.ok()?;
     let name = tag_content(&xml, "friendlyName").unwrap_or_else(|| "Network player".into());
+
+    // LinkPlay probe: a valid getPlayerStatus JSON marks the native API.
+    for scheme in ["https", "http"] {
+        let api_base = format!("{scheme}://{host}");
+        let url = format!("{api_base}/httpapi.asp?command=getPlayerStatus");
+        if let Ok(resp) = client.get(&url).send().await {
+            if let Ok(text) = resp.text().await {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if v.get("status").is_some() {
+                        eprintln!("[remote] {name}: LinkPlay API @ {api_base}");
+                        return Some(Target::LinkPlay {
+                            base: api_base,
+                            name,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Generic DLNA fallback.
     let mut control = None;
     for chunk in xml.split("<service>") {
         if chunk.contains(AVT) {
@@ -135,12 +189,70 @@ async fn probe_device(client: &reqwest::Client, location: &str) -> Option<(Strin
             break;
         }
     }
-    let control = control?;
-    // absolutize against the description URL's origin
-    let base = reqwest::Url::parse(location).ok()?;
-    let ctrl_url = base.join(&control).ok()?.to_string();
-    Some((ctrl_url, name))
+    let ctrl_url = base_url.join(&control?).ok()?.to_string();
+    eprintln!("[remote] {name}: generic AVTransport @ {ctrl_url}");
+    Some(Target::Upnp { ctrl_url, name })
 }
+
+// ---------- LinkPlay (WiiM) ----------
+
+async fn linkplay_get(
+    client: &reqwest::Client,
+    base: &str,
+    command: &str,
+) -> Option<serde_json::Value> {
+    let url = format!("{base}/httpapi.asp?command={command}");
+    let text = client.get(&url).send().await.ok()?.text().await.ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+async fn poll_linkplay(client: &reqwest::Client, base: &str, name: &str) -> Option<RemoteState> {
+    let status = linkplay_get(client, base, "getPlayerStatus").await?;
+    let s = |k: &str| status.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let playing = matches!(s("status").as_str(), "play" | "loading" | "load");
+    let position = s("curpos").parse::<f64>().unwrap_or(0.0) / 1000.0;
+    let duration = s("totlen").parse::<f64>().unwrap_or(0.0) / 1000.0;
+
+    // getMetaInfo has clean text + album art (newer firmware); fall back to the
+    // hex-encoded getPlayerStatus fields.
+    let mut title = hex_decode(&s("Title"));
+    let mut artist = hex_decode(&s("Artist"));
+    let mut album = hex_decode(&s("Album"));
+    let mut art = String::new();
+    if let Some(meta) = linkplay_get(client, base, "getMetaInfo").await {
+        if let Some(md) = meta.get("metaData") {
+            let m = |k: &str| md.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if !m("title").is_empty() {
+                title = m("title");
+                artist = m("artist");
+                album = m("album");
+            }
+            art = m("albumArtURI");
+        }
+    }
+    // Some sources report placeholder "unknow(n)" strings.
+    let clean = |x: String| {
+        let l = x.to_lowercase();
+        if l == "unknow" || l == "unknown" || l == "un_known" {
+            String::new()
+        } else {
+            x
+        }
+    };
+
+    Some(RemoteState {
+        device: name.to_string(),
+        playing,
+        title: clean(title),
+        artist: clean(artist),
+        album: clean(album),
+        art,
+        position,
+        duration,
+    })
+}
+
+// ---------- generic AVTransport ----------
 
 async fn soap(
     client: &reqwest::Client,
@@ -155,7 +267,6 @@ async fn soap(
         .post(ctrl_url)
         .header("SOAPAction", format!("\"{AVT}#{action}\""))
         .header("Content-Type", "text/xml; charset=\"utf-8\"")
-        .timeout(Duration::from_secs(4))
         .body(envelope)
         .send()
         .await
@@ -166,27 +277,7 @@ async fn soap(
     resp.text().await.ok()
 }
 
-/// Issue a transport command ("play" | "pause" | "skip") to the current device.
-pub async fn command(client: &reqwest::Client, ctl: &RemoteCtl, cmd: &str) -> Result<(), String> {
-    let target = ctl.target.lock().await.clone();
-    let (ctrl_url, _) = target.ok_or("no network player found")?;
-    let (action, args) = match cmd {
-        "play" => ("Play", "<Speed>1</Speed>"),
-        "pause" => ("Pause", ""),
-        "skip" => ("Next", ""),
-        _ => return Err(format!("unknown remote command: {cmd}")),
-    };
-    soap(client, &ctrl_url, action, args)
-        .await
-        .map(|_| ())
-        .ok_or_else(|| format!("{action} failed"))
-}
-
-async fn poll_state(
-    client: &reqwest::Client,
-    ctrl_url: &str,
-    device: &str,
-) -> Option<RemoteState> {
+async fn poll_upnp(client: &reqwest::Client, ctrl_url: &str, name: &str) -> Option<RemoteState> {
     let transport = soap(client, ctrl_url, "GetTransportInfo", "").await?;
     let state = tag_content(&transport, "CurrentTransportState").unwrap_or_default();
     let playing = state == "PLAYING" || state == "TRANSITIONING";
@@ -197,7 +288,7 @@ async fn poll_state(
     let didl = xml_unescape(&tag_content(&pos, "TrackMetaData").unwrap_or_default());
 
     Some(RemoteState {
-        device: device.to_string(),
+        device: name.to_string(),
         playing,
         title: xml_unescape(&tag_content(&didl, "title").unwrap_or_default()),
         artist: xml_unescape(
@@ -212,11 +303,46 @@ async fn poll_state(
     })
 }
 
-/// Background task: discover a MediaRenderer, then poll it every second and
-/// emit `remote://state` whenever anything changes.
+// ---------- public API ----------
+
+/// Issue a transport command ("play" | "pause" | "skip") to the current device.
+pub async fn command(client: &reqwest::Client, ctl: &RemoteCtl, cmd: &str) -> Result<(), String> {
+    let target = ctl.target.lock().await.clone().ok_or("no network player found")?;
+    match target {
+        Target::LinkPlay { base, .. } => {
+            let lp_cmd = match cmd {
+                "play" => "setPlayerCmd:resume",
+                "pause" => "setPlayerCmd:pause",
+                "skip" => "setPlayerCmd:next",
+                _ => return Err(format!("unknown remote command: {cmd}")),
+            };
+            client
+                .get(format!("{base}/httpapi.asp?command={lp_cmd}"))
+                .send()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        Target::Upnp { ctrl_url, .. } => {
+            let (action, args) = match cmd {
+                "play" => ("Play", "<Speed>1</Speed>"),
+                "pause" => ("Pause", ""),
+                "skip" => ("Next", ""),
+                _ => return Err(format!("unknown remote command: {cmd}")),
+            };
+            soap(client, &ctrl_url, action, args)
+                .await
+                .map(|_| ())
+                .ok_or_else(|| format!("{action} failed"))
+        }
+    }
+}
+
+/// Background task: discover a renderer, poll it every second, emit
+/// `remote://state` whenever anything changes.
 pub fn start(app: tauri::AppHandle, ctl: RemoteCtl) {
     tauri::async_runtime::spawn(async move {
-        let client = reqwest::Client::new();
+        let client = device_client();
         let mut last = RemoteState::default();
         let mut failures = 0u32;
         loop {
@@ -224,15 +350,14 @@ pub fn start(app: tauri::AppHandle, ctl: RemoteCtl) {
             if !have_target {
                 let locations =
                     tauri::async_runtime::spawn_blocking(ssdp_search).await.unwrap_or_default();
-                let mut best: Option<(String, String)> = None;
+                let mut best: Option<Target> = None;
                 for loc in &locations {
-                    if let Some((ctrl_url, name)) = probe_device(&client, loc).await {
-                        eprintln!("[upnp] found renderer: {name} @ {ctrl_url}");
-                        // prefer a WiiM if several renderers answer
-                        let is_wiim = name.to_lowercase().contains("wiim")
-                            || name.to_lowercase().contains("speaker");
-                        if best.is_none() || is_wiim {
-                            best = Some((ctrl_url, name));
+                    if let Some(t) = probe_device(&client, loc).await {
+                        let prefer = matches!(t, Target::LinkPlay { .. })
+                            || t.name().to_lowercase().contains("wiim")
+                            || t.name().to_lowercase().contains("speaker");
+                        if best.is_none() || prefer {
+                            best = Some(t);
                         }
                     }
                 }
@@ -245,8 +370,12 @@ pub fn start(app: tauri::AppHandle, ctl: RemoteCtl) {
             }
 
             let target = ctl.target.lock().await.clone();
-            if let Some((ctrl_url, name)) = target {
-                match poll_state(&client, &ctrl_url, &name).await {
+            if let Some(t) = target {
+                let polled = match &t {
+                    Target::LinkPlay { base, name } => poll_linkplay(&client, base, name).await,
+                    Target::Upnp { ctrl_url, name } => poll_upnp(&client, ctrl_url, name).await,
+                };
+                match polled {
                     Some(st) => {
                         failures = 0;
                         if st != last {
@@ -257,7 +386,7 @@ pub fn start(app: tauri::AppHandle, ctl: RemoteCtl) {
                     None => {
                         failures += 1;
                         if failures >= 5 {
-                            eprintln!("[upnp] {name} unreachable — rediscovering");
+                            eprintln!("[remote] {} unreachable — rediscovering", t.name());
                             *ctl.target.lock().await = None;
                             failures = 0;
                             let _ = app.emit("remote://state", &RemoteState::default());

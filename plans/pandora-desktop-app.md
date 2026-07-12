@@ -300,6 +300,25 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
 - If user STILL sees no flash on 0.3.4 → handler truly not firing; next step devtools/console
   in the main window (Ctrl+Shift+I) or check version badge for stale build.
 
+## Round 15 (2026-07-12): v0.4.0 — UPnP/DLNA remote mode
+- User rejected HA-mediated overlay: "read straight from the media player ourselves." Built
+  direct UPnP client (`src-tauri/src/upnp.rs`): SSDP M-SEARCH for MediaRenderer, description
+  probe (friendlyName + AVTransport controlURL, prefers names containing wiim/speaker), 1s
+  SOAP polls of GetTransportInfo + GetPositionInfo (DIDL-Lite → title/artist/album/albumArtURI),
+  emits `remote://state` on change; 5 consecutive failures → rediscover.
+- UI remote mode: local idle >3s + remote playing → overlay ("NOW PLAYING ON <device>" badge,
+  accent color); local playback resuming flips back ≤1s. Lyrics pipeline fully reused (cache,
+  duration matching, [ ] nudge, remote position interpolated between polls). Play/pause/skip →
+  `remote_cmd` (AVTransport Play/Pause/Next) = first slice of "control the WiiM" feature.
+  Thumbs/replay/station/history hidden via body.remote CSS.
+- HA recon (before user redirected): WiiM = media_player.tom_sawyer_labs_warehouse_wiim
+  ("Speakers"), exposes title/artist/album/duration/position — confirmed the metadata exists.
+- RISK (untested): whether WiiM's AVTransport reports metadata/position for NATIVE sources
+  (WiiM-app Pandora etc.), not just DLNA-pushed streams. HA's wiim entity may use the LinkPlay
+  HTTP API. If AVTransport comes up empty for native sources → fallback: LinkPlay API
+  (http://IP/httpapi.asp?command=getPlayerStatus, hex-encoded fields).
+- Queued NEW: fuller WiiM control (volume, source pick?) as future feature per user.
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.
