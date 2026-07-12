@@ -303,6 +303,54 @@ async fn poll_upnp(client: &reqwest::Client, ctrl_url: &str, name: &str) -> Opti
     })
 }
 
+// ---------- presets (LinkPlay only) ----------
+
+#[derive(Serialize)]
+pub struct Preset {
+    pub number: u32,
+    pub name: String,
+    pub source: String,
+    pub art: String,
+}
+
+/// LinkPlay JSON is stringly-typed; accept numbers as numbers or strings.
+fn jnum(v: Option<&serde_json::Value>) -> u64 {
+    match v {
+        Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0),
+        Some(serde_json::Value::String(s)) => s.parse().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+/// List the presets configured on the device (WiiM Home app presets 1-12).
+pub async fn presets(client: &reqwest::Client, ctl: &RemoteCtl) -> Result<Vec<Preset>, String> {
+    let target = ctl.target.lock().await.clone().ok_or("no network player found")?;
+    let Target::LinkPlay { base, .. } = target else {
+        return Err("presets require a WiiM/LinkPlay device".into());
+    };
+    let v = linkplay_get(client, &base, "getPresetInfo")
+        .await
+        .ok_or("preset query failed")?;
+    let list = v
+        .get("preset_list")
+        .and_then(|x| x.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let s = |p: &serde_json::Value, k: &str| {
+        p.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()
+    };
+    Ok(list
+        .iter()
+        .map(|p| Preset {
+            number: jnum(p.get("number")) as u32,
+            name: s(p, "name"),
+            source: s(p, "source"),
+            art: s(p, "picurl"),
+        })
+        .filter(|p| p.number > 0 && !p.name.is_empty())
+        .collect())
+}
+
 // ---------- public API ----------
 
 /// Issue a transport command ("play" | "pause" | "skip") to the current device.
@@ -311,9 +359,14 @@ pub async fn command(client: &reqwest::Client, ctl: &RemoteCtl, cmd: &str) -> Re
     match target {
         Target::LinkPlay { base, .. } => {
             let lp_cmd = match cmd {
-                "play" => "setPlayerCmd:resume",
-                "pause" => "setPlayerCmd:pause",
-                "skip" => "setPlayerCmd:next",
+                "play" => "setPlayerCmd:resume".to_string(),
+                "pause" => "setPlayerCmd:pause".to_string(),
+                "skip" => "setPlayerCmd:next".to_string(),
+                // "preset:N" fires device preset N like its hardware button
+                c if c.starts_with("preset:") => {
+                    let n: u32 = c[7..].parse().map_err(|_| "bad preset number")?;
+                    format!("MCUKeyShortClick:{n}")
+                }
                 _ => return Err(format!("unknown remote command: {cmd}")),
             };
             client

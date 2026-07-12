@@ -224,6 +224,15 @@ async fn remote_cmd(
     upnp::command(&client, &ctl, &cmd).await
 }
 
+/// List the network player's presets (WiiM Home app presets).
+#[tauri::command]
+async fn remote_presets(
+    ctl: tauri::State<'_, upnp::RemoteCtl>,
+) -> Result<Vec<upnp::Preset>, String> {
+    let client = upnp::device_client();
+    upnp::presets(&client, &ctl).await
+}
+
 /// Native Windows SMTC (media keys, volume-flyout / lock-screen media panel).
 /// WebView2 does not bridge the page's MediaSession to Windows, so we own the
 /// media session from Rust: bridge events feed metadata/state in, and SMTC
@@ -416,6 +425,7 @@ pub fn run() {
             fetch_lyrics,
             player_cmd,
             remote_cmd,
+            remote_presets,
             show_engine,
             toggle_engine
         ])

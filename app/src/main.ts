@@ -587,10 +587,83 @@ function updateMode() {
   }
 }
 
+let remoteDevice = "";
 listen<RemoteState>("remote://state", (e) => {
-  remote = e.payload && e.payload.title ? e.payload : null;
+  const st = e.payload;
+  remoteDevice = st?.device || "";
+  speakersBtn.hidden = !remoteDevice;
+  remote = st && st.title ? st : null;
   remoteAt = Date.now();
   updateMode();
+});
+
+// ---- "Play on Speakers": the network player's presets --------------------
+interface Preset {
+  number: number;
+  name: string;
+  source: string;
+  art: string;
+}
+const speakersBtn = $("speakers-btn");
+const speakersPanel = $("speakers-panel");
+const speakersHead = $("speakers-head");
+const speakersList = $("speakers-list");
+
+speakersBtn.addEventListener("click", async (ev) => {
+  ev.stopPropagation();
+  if (!speakersPanel.hidden) {
+    speakersPanel.hidden = true;
+    return;
+  }
+  speakersPanel.hidden = false;
+  speakersHead.textContent = `Play on ${remoteDevice || "speakers"}`;
+  speakersList.innerHTML = `<div class="sp-empty">Loading presets…</div>`;
+  try {
+    const presets = await invoke<Preset[]>("remote_presets");
+    speakersList.innerHTML = "";
+    if (!presets.length) {
+      speakersList.innerHTML = `<div class="sp-empty">No presets configured — add them in the WiiM Home app.</div>`;
+      return;
+    }
+    for (const p of presets) {
+      const item = document.createElement("div");
+      item.className = "preset-item";
+      if (p.art) {
+        const img = new Image();
+        img.src = p.art;
+        img.className = "preset-art";
+        img.onerror = () => img.remove();
+        item.appendChild(img);
+      }
+      const text = document.createElement("div");
+      const name = document.createElement("div");
+      name.className = "preset-name";
+      name.textContent = p.name;
+      text.appendChild(name);
+      if (p.source) {
+        const src = document.createElement("div");
+        src.className = "preset-source";
+        src.textContent = p.source;
+        text.appendChild(src);
+      }
+      item.appendChild(text);
+      item.addEventListener("click", () => {
+        invoke("remote_cmd", { cmd: `preset:${p.number}` }).catch(() => {});
+        speakersPanel.hidden = true;
+      });
+      speakersList.appendChild(item);
+    }
+  } catch (err) {
+    speakersList.innerHTML = `<div class="sp-empty">${String(err)}</div>`;
+  }
+});
+window.addEventListener("click", (e) => {
+  if (!speakersPanel.hidden && !(e.target as HTMLElement).closest("#speakers-panel, #speakers-btn")) {
+    speakersPanel.hidden = true;
+  }
+});
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") speakersPanel.hidden = true;
 });
 
 // Interpolate the remote position between the 1s device polls.

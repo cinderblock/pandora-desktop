@@ -319,6 +319,18 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
   (http://IP/httpapi.asp?command=getPlayerStatus, hex-encoded fields).
 - Queued NEW: fuller WiiM control (volume, source pick?) as future feature per user.
 
+## Round 16 (2026-07-12): v0.4.1 — LinkPlay native API preferred
+- User: "definitely use the better API if available." Discovery now probes each SSDP renderer
+  for the LinkPlay HTTP API (getPlayerStatus JSON; https→http, self-signed certs accepted via
+  danger_accept_invalid_certs). If present → Target::LinkPlay (reports native WiiM sources);
+  else Target::Upnp AVTransport fallback.
+- LinkPlay specifics (verified via wiimhome.com PDF + forums): getPlayerStatus {status:
+  play/pause/stop/loading, curpos/totlen in MS, Title/Artist/Album HEX-encoded}; getMetaInfo →
+  metaData{title,artist,album,albumArtURI} clean text (newer firmware); commands
+  setPlayerCmd:resume|pause|next. hex_decode() passes non-hex through; "unknow(n)" placeholders
+  blanked.
+- UI unchanged from 0.4.0 (same remote://state contract).
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.
