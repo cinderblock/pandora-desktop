@@ -28,6 +28,16 @@ interface LyricLine {
   t: number;
   text: string;
 }
+interface RemoteState {
+  device: string;
+  playing: boolean;
+  title: string;
+  artist: string;
+  album: string;
+  art: string;
+  position: number;
+  duration: number;
+}
 
 // ---- element helpers ---------------------------------------------------
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -65,6 +75,12 @@ const fmt = (s: number) => {
 let currentKey = "";
 let everPlayed = false;
 let syncedLines: LyricLine[] | null = null;
+// remote (network player) mode
+let remote: RemoteState | null = null;
+let remoteAt = 0; // Date.now() when the last remote state arrived
+let remoteMode = false;
+let lastLocalPlayingAt = 0;
+let lastLocalNp: NowPlaying | null = null;
 let activeLineIdx = -1;
 let lastPlayhead: Playhead = { position: 0, duration: 0, paused: true, volume: 1 };
 
@@ -138,6 +154,8 @@ function highlightLine(position: number) {
 // ---- now-playing -------------------------------------------------------
 async function onNowPlaying(np: NowPlaying) {
   everPlayed = true;
+  lastLocalNp = np;
+  if (remoteMode) return; // remote overlay owns the screen; re-rendered on exit
   loginHint.hidden = true;
   player.hidden = false;
 
@@ -292,20 +310,30 @@ function setThumbs(up: boolean, down: boolean) {
 }
 
 async function loadLyrics(np: NowPlaying) {
+  const key = `${np.title}|${np.artist}|${np.album}`;
   lyricsStatus.textContent = "Loading lyrics…";
   lyricsEl.innerHTML = "";
+  const duration = await waitForDuration(key);
+  if (currentKey !== key) return;
+  await loadLyricsFor({ title: np.title, artist: np.artist, album: np.album }, duration, key);
+}
+
+async function loadLyricsFor(
+  meta: { title: string; artist: string; album: string },
+  duration: number | null,
+  key: string
+) {
+  lyricsStatus.textContent = "Loading lyrics…";
+  if (lyricsEl.innerHTML === "" || currentKey === key) lyricsEl.innerHTML = "";
   try {
-    const key = `${np.title}|${np.artist}|${np.album}`;
-    const duration = await waitForDuration(key);
-    if (currentKey !== key) return;
     const res = await invoke<Lyrics>("fetch_lyrics", {
-      artist: np.artist,
-      track: np.title,
-      album: np.album || null,
+      artist: meta.artist,
+      track: meta.title,
+      album: meta.album || null,
       duration,
     });
     // Ignore if the track changed while we were fetching.
-    if (`${np.title}|${np.artist}|${np.album}` !== currentKey) return;
+    if (key !== currentKey) return;
 
     if (res.synced) {
       syncedLines = parseLrc(res.synced);
@@ -336,15 +364,21 @@ let lastPos = -1;
 let lastMoveAt = 0;
 function onPlayhead(ph: Playhead) {
   lastPlayhead = ph;
+  const now = Date.now();
+  const moved = Math.abs(ph.position - lastPos) > 0.05;
+  if (moved) {
+    lastPos = ph.position;
+    lastMoveAt = now;
+    lastLocalPlayingAt = now; // local playback active — used for mode switching
+    updateMode();
+  }
+  if (remoteMode) return; // remote overlay owns progress/icon/highlight
+
   const pct = ph.duration > 0 ? (ph.position / ph.duration) * 100 : 0;
   barEl.style.width = `${Math.min(100, pct)}%`;
   tCur.textContent = fmt(ph.position);
   tDur.textContent = fmt(ph.duration);
-
-  const now = Date.now();
-  if (Math.abs(ph.position - lastPos) > 0.05) {
-    lastPos = ph.position;
-    lastMoveAt = now;
+  if (moved) {
     if (now >= optimisticUntil) setPlayingIcon(true);
   } else if (now - lastMoveAt > 1600 && now >= optimisticUntil) {
     setPlayingIcon(false);
@@ -372,9 +406,14 @@ function setPlayingIcon(playing: boolean) {
 // the optimistic state briefly so the icon doesn't flicker before settling.
 let optimisticUntil = 0;
 function togglePlayback() {
-  setPlayingIcon(!uiPlaying);
+  const desired = !uiPlaying;
+  setPlayingIcon(desired);
   optimisticUntil = Date.now() + 2000;
-  cmd("toggle");
+  if (remoteMode) {
+    invoke("remote_cmd", { cmd: desired ? "play" : "pause" }).catch(() => {});
+  } else {
+    cmd("toggle");
+  }
 }
 $("play").addEventListener("click", togglePlayback);
 // Space toggles playback (unless typing in the station search)
@@ -385,7 +424,9 @@ window.addEventListener("keydown", (e) => {
   }
 });
 getVersion().then((v) => ($("version").textContent = `v${v}`)).catch(() => {});
-$("skip").addEventListener("click", () => cmd("skip"));
+$("skip").addEventListener("click", () =>
+  remoteMode ? invoke("remote_cmd", { cmd: "skip" }).catch(() => {}) : cmd("skip")
+);
 $("replay").addEventListener("click", () => cmd("replay"));
 thumbUpBtn.addEventListener("click", () => cmd("thumbUp"));
 thumbDownBtn.addEventListener("click", () => cmd("thumbDown"));
@@ -498,6 +539,72 @@ listen<{ playing: boolean }>("player://optimistic", (e) => {
   setPlayingIcon(e.payload.playing);
   optimisticUntil = Date.now() + 2000;
 });
+
+// ---- remote (network player) mode ----------------------------------------
+// When the local engine is idle and a UPnP/DLNA renderer on the LAN is
+// playing, the UI becomes a display for it: art, metadata, synced lyrics.
+const remoteBadge = $("remote-badge");
+
+const remoteKey = (r: RemoteState) => `R|${r.title}|${r.artist}|${r.album}`;
+
+function renderRemote(r: RemoteState) {
+  const key = remoteKey(r);
+  if (key === currentKey) return;
+  titleInner.textContent = r.title || "—";
+  titleInner.style.transform = "translateX(0)";
+  requestAnimationFrame(() =>
+    titleEl.classList.toggle("fits", titleInner.scrollWidth <= titleEl.clientWidth + 1)
+  );
+  artistEl.textContent = r.artist || "";
+  albumEl.textContent = r.album || "";
+  remoteBadge.textContent = `Now playing on ${r.device}`;
+  if (r.art) setArt(r.art, "");
+  currentKey = key;
+  syncedLines = null;
+  activeLineIdx = -1;
+  syncOffset = parseFloat(localStorage.getItem(`syncoff:${key}`) || "0") || 0;
+  loadLyricsFor({ title: r.title, artist: r.artist, album: r.album }, r.duration || null, key);
+}
+
+function updateMode() {
+  const localRecent = Date.now() - lastLocalPlayingAt < 3000;
+  const want = !!remote && remote.playing && !!remote.title && !localRecent;
+  if (want === remoteMode) {
+    if (remoteMode && remote) renderRemote(remote); // track change within remote mode
+    return;
+  }
+  remoteMode = want;
+  document.body.classList.toggle("remote", remoteMode);
+  remoteBadge.hidden = !remoteMode;
+  currentKey = ""; // force full re-render for the new source
+  if (remoteMode && remote) {
+    loginHint.hidden = true;
+    player.hidden = false;
+    renderRemote(remote);
+    setPlayingIcon(remote.playing);
+  } else if (lastLocalNp) {
+    onNowPlaying(lastLocalNp);
+  }
+}
+
+listen<RemoteState>("remote://state", (e) => {
+  remote = e.payload && e.payload.title ? e.payload : null;
+  remoteAt = Date.now();
+  updateMode();
+});
+
+// Interpolate the remote position between the 1s device polls.
+setInterval(() => {
+  if (!remoteMode || !remote) return;
+  let pos = remote.position + (remote.playing ? (Date.now() - remoteAt) / 1000 : 0);
+  if (remote.duration > 0) pos = Math.min(pos, remote.duration);
+  const pct = remote.duration > 0 ? (pos / remote.duration) * 100 : 0;
+  barEl.style.width = `${Math.min(100, pct)}%`;
+  tCur.textContent = fmt(pos);
+  tDur.textContent = fmt(remote.duration);
+  if (Date.now() >= optimisticUntil) setPlayingIcon(remote.playing);
+  highlightLine(pos);
+}, 400);
 
 // ---- events from the engine bridge ------------------------------------
 listen<NowPlaying>("engine://nowplaying", (e) => onNowPlaying(e.payload));

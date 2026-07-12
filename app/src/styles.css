@@ -98,6 +98,22 @@ body {
   margin-top: 26px;
   max-width: 100%;
 }
+#remote-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+/* remote mode: hide local-only controls (thumbs/replay/station picker) */
+body.remote #thumbUp,
+body.remote #thumbDown,
+body.remote #replay,
+body.remote #station-wrap,
+body.remote #history {
+  display: none;
+}
+
 #station-wrap {
   position: relative;
   display: inline-block;

@@ -292,6 +292,14 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
   shown in lyrics-status. User asked "am I overthinking?" — no: version-selection was real
   (fixed above); nudge covers LRCLIB's own timing variance.
 
+## Round 14 (2026-07-10): v0.3.4 — nudge "doesn't work"
+- Handler code was correct; problem is FEEDBACK: ±0.25s rarely moves the active line instantly,
+  status text tiny, and songs with only plain lyrics hit a SILENT `if (!syncedLines) return`.
+- v0.3.4: every [ / ] press flashes #lyrics-status (scale+color animation), including explicit
+  "No synced lyrics to nudge"; keys also matched by e.code Bracket{Left,Right}.
+- If user STILL sees no flash on 0.3.4 → handler truly not firing; next step devtools/console
+  in the main window (Ctrl+Shift+I) or check version badge for stale build.
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.

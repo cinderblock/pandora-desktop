@@ -1,3 +1,5 @@
+mod upnp;
+
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -212,6 +214,16 @@ fn player_cmd(app: tauri::AppHandle, cmd: String) -> Result<(), String> {
     engine_cmd(&app, &cmd)
 }
 
+/// Transport command for the network (UPnP/DLNA) player shown in remote mode.
+#[tauri::command]
+async fn remote_cmd(
+    ctl: tauri::State<'_, upnp::RemoteCtl>,
+    cmd: String,
+) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    upnp::command(&client, &ctl, &cmd).await
+}
+
 /// Native Windows SMTC (media keys, volume-flyout / lock-screen media panel).
 /// WebView2 does not bridge the page's MediaSession to Windows, so we own the
 /// media session from Rust: bridge events feed metadata/state in, and SMTC
@@ -403,6 +415,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             fetch_lyrics,
             player_cmd,
+            remote_cmd,
             show_engine,
             toggle_engine
         ])
@@ -451,6 +464,11 @@ pub fn run() {
             if let Err(e) = setup_media_controls(app) {
                 eprintln!("[smtc] setup failed: {e}");
             }
+
+            // Network (UPnP/DLNA) player watcher — feeds remote-mode overlay.
+            let remote_ctl = upnp::RemoteCtl::new();
+            app.manage(remote_ctl.clone());
+            upnp::start(app.handle().clone(), remote_ctl);
 
             // Watchdog: the bridge emits engine://heartbeat every 5s. If the engine
             // page wedges (renderer crash, stuck navigation), heartbeats stop and we
