@@ -4,8 +4,25 @@
 unofficial desktop client for a **paid Pandora account**, built after Pandora discontinued their
 official desktop app. It wraps Pandora's own authenticated web player (so login, DRM, ad-free
 playback, and skips are all handled by Pandora) and overlays a redesigned UI that puts the
-current song's **album art and synced lyrics front and center**, with full **Windows system
-media controls** (media keys / volume-flyout / lock screen).
+current song's **album art and synced lyrics front and center**.
+
+## Features
+
+- **Synced (karaoke-style) lyrics** from [LRCLIB](https://lrclib.net), with duration-aware
+  version matching, a permanent on-disk cache, and per-track sync nudging (`[` / `]`, ±0.25 s).
+- **Native Windows media integration**: hardware media keys and the volume-flyout / lock-screen
+  media panel (title, artist, album art, live state) via a real SMTC session — not the
+  browser's flaky MediaSession bridge.
+- **Transport & stations**: play/pause (Space), skip, thumbs, replay, searchable station
+  picker, recently-played art gallery with per-track detail modal.
+- **Network player (UPnP/DLNA + WiiM) remote mode**: when local playback is idle and a
+  renderer on the LAN is playing, Jarlid becomes its display — "Now playing on …" with art and
+  synced lyrics. WiiM devices use the native LinkPlay API, so metadata works for the WiiM's own
+  sources too, and Jarlid can start playback on the device from its preset list and control
+  play/pause/skip.
+- **Self-healing engine**: heartbeat watchdog auto-reloads a wedged Pandora page and
+  auto-dismisses the "still listening?" prompt for all-day sessions.
+- Window position/size persist across launches (kill-safe).
 
 ## Why this approach
 
@@ -28,6 +45,11 @@ Two decoupled contexts inside one Tauri (Rust + WebView2) app:
 
 State flows engine → Rust events → UI. Controls flow UI → Rust → `eval` into the engine.
 
+Two more Rust-side services complete the picture: a native Windows SMTC session (`souvlaki`)
+fed by the same engine events, and a network-player watcher (`app/src-tauri/src/upnp.rs`) that
+discovers a renderer via SSDP and reads it directly — LinkPlay/WiiM native HTTP API first,
+generic DLNA AVTransport as fallback.
+
 ## Develop
 
 ```sh
@@ -40,10 +62,17 @@ Requirements: Rust, Bun, and the WebView2 runtime (all already present on the de
 First launch: log in to Pandora once in the engine window; the session persists (WebView2 user
 data keyed to app id `com.camer.pandora-desktop`).
 
+## Install / Build
+
+Build the installer with `cd app && bun run tauri build` — output lands in
+`app/src-tauri/target/release/bundle/nsis/Jarlid_<version>_x64-setup.exe` (an MSI is produced
+too). First launch: log in to Pandora once in the engine window (reveal it with the globe
+button or `Ctrl+Shift+E`); the session persists across updates.
+
 ## Status
 
-Early but working: the bridge, backend, SMTC, synced lyrics, and UI are wired up and the engine
-runs hidden. Rough edges are tracked in `plans/pandora-desktop-app.md`.
+Daily-driver ready. Remaining ideas (auto-updates via GitHub Releases, full station-collection
+search, WiiM volume, GPU-flag tuning) are tracked in `plans/pandora-desktop-app.md`.
 
 ## Disclaimer
 
