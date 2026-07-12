@@ -15,6 +15,7 @@
       console.log.apply(console, a);
     } catch (e) {}
   };
+  var injectedAt = Date.now();
   LOG("v3 injected @", location.href, "top-frame:", window.top === window);
   // Only run in the top frame — Pandora has cross-origin iframes we must ignore.
   if (window.top !== window) {
@@ -137,10 +138,15 @@
     var title = txt("title");
     if (!title) {
       // No player yet: either still loading, or we genuinely need a login.
-      // Never signal login once we've seen a real track (transient re-renders).
+      // Never signal login once we've seen a real track (transient re-renders),
+      // and give the SPA time to redirect "/" to the player before judging —
+      // otherwise the engine window flashes up on every cold start.
       if (everHadTitle) return;
+      if (Date.now() - injectedAt < 8000) return;
       var loginish =
-        isLoginPage() || /(^\/$)|login|signin|sign-in/i.test(location.pathname);
+        isLoginPage() ||
+        /account\/sign|login|signin/i.test(location.pathname) ||
+        !!document.querySelector('a[href*="/account/sign-in"]');
       if (loginish) emit("engine://needs-login", { needsLogin: true });
       return;
     }

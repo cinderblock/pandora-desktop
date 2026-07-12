@@ -372,6 +372,17 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
   bundle.createUpdaterArtifacts=true. CI: .github/workflows/release.yml on v* tags
   (tauri-action, windows-latest, rust-cache). Tag v0.6.0 pushed → run 29211394389.
 
+## Round 20 (2026-07-12): v0.6.1 — deep-page detection
+- User parked engine on a deep Pandora page → detection broke: bridge only scraped Now Playing
+  page elements. QA map now lists selector candidates in preference order; falls back to the
+  mini player / tuner bar (mini_track_title / mini_track_artist_name / mini_track_image) that
+  exists on every page. Album/station absent in mini player → reuse last-known for same
+  title|artist (lastMeta) so change-keys don't churn.
+- Updater: startup-only check → loop every 4h (long-running instances see new releases).
+- v0.6.1 tagged → CI release → THIS IS THE FIRST AUTO-UPDATE TEST: user's 0.6.0 should show
+  the banner (within ~10s of a fresh launch, or ≤4h if left running... 0.6.0 has startup-only
+  check, so user must restart the app once to see it).
+
 ## Queued (user requests, not yet done)
 - Title marquee: DONE (hover-scrub, round 3). VERIFY with user.
 - Lighter GPU flag (`--use-angle=gl`) instead of full `--disable-gpu`.
