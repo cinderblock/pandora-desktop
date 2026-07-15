@@ -392,6 +392,15 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
 - New release loop: edit → tag vX.Y.Z → CI publishes → user's app offers the update itself
   (startup or ≤4h). No more local installer handoffs.
 
+## Round 24 (2026-07-12): v0.6.5 — auto-recover stuck playback
+- User: after a long pause Pandora sometimes spins forever on play until a manual engine
+  refresh (expired stream URL). Bridge recovery ladder, armed on every play/toggle-to-play:
+  emitPlayhead tracks lastPosMoveAt; a 2s watchdog escalates when position hasn't moved —
+  stage1 @12s re-click play, stage2 @25s reload engine (sessionStorage cooldown 3min +
+  jarlid-resume flag) → maybeResumeAfterReload() clicks play once player is back (waits for
+  title, ≤30 tries). Complements the existing 30s heartbeat watchdog (that catches a fully
+  dead page; this catches a live-but-stalled stream).
+
 ## Round 23 (2026-07-12): v0.6.4 — badge-as-update-UI
 - User: version click should check; update control should be unobtrusive AT the badge.
 - Center banner REMOVED. #version (now a <button>) is the whole update UI: click → check
