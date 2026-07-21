@@ -173,7 +173,10 @@ async function onNowPlaying(np: NowPlaying) {
 
   setArt(np.art || np.artFallback, np.artFallback);
 
-  const key = `${np.title}|${np.artist}|${np.album}`;
+  // Key on title+artist only. Album flickers empty when Pandora collapses the
+  // now-playing view during a long pause; including it would churn the key and
+  // wipe the lyrics until the next song.
+  const key = `${np.title}|${np.artist}`;
   if (key !== currentKey) {
     currentKey = key;
     syncedLines = null;
@@ -341,9 +344,9 @@ function setThumbs(up: boolean, down: boolean) {
 }
 
 async function loadLyrics(np: NowPlaying) {
-  const key = `${np.title}|${np.artist}|${np.album}`;
+  const key = `${np.title}|${np.artist}`;
   lyricsStatus.textContent = "Loading lyrics…";
-  lyricsEl.innerHTML = "";
+  // Keep any existing lyrics on screen until replacements arrive (no blank flash).
   const duration = await waitForDuration(key);
   if (currentKey !== key) return;
   await loadLyricsFor({ title: np.title, artist: np.artist, album: np.album }, duration, key);
@@ -355,7 +358,6 @@ async function loadLyricsFor(
   key: string
 ) {
   lyricsStatus.textContent = "Loading lyrics…";
-  if (lyricsEl.innerHTML === "" || currentKey === key) lyricsEl.innerHTML = "";
   try {
     const res = await invoke<Lyrics>("fetch_lyrics", {
       artist: meta.artist,
