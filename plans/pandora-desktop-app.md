@@ -392,6 +392,13 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
 - New release loop: edit → tag vX.Y.Z → CI publishes → user's app offers the update itself
   (startup or ≤4h). No more local installer handoffs.
 
+## Round 25 (2026-07-12): v0.6.6 — lyrics vanish during long pause
+- Lyrics disappeared during a long pause, back only next song. Cause: UI lyrics reload key was
+  title|artist|album; Pandora collapses the now-playing view when paused a while → album field
+  flickers empty → key churn → loadLyrics blanked pane + refetched (waitForDuration stalls while
+  paused). Fix: reload key = title|artist only (album still passed to fetch_lyrics query); removed
+  eager pane-blanking so lyrics persist until replacements render.
+
 ## Round 24 (2026-07-12): v0.6.5 — auto-recover stuck playback
 - User: after a long pause Pandora sometimes spins forever on play until a manual engine
   refresh (expired stream URL). Bridge recovery ladder, armed on every play/toggle-to-play:
