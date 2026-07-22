@@ -392,6 +392,18 @@ baseline, needs no approval. **Web-wrapper build continues regardless.**
 - New release loop: edit → tag vX.Y.Z → CI publishes → user's app offers the update itself
   (startup or ≤4h). No more local installer handoffs.
 
+## Round 26 (2026-07-13): v0.6.7 — WiiM not discovered (multi-homed machine)
+- User: WiiM/remote UI not loading, "did you break it?" — NO. upnp.rs unchanged since 0.6.0.
+- Diagnosed with scripts/ssdp_probe.py (per-interface SSDP): this PC has 10 IPv4 interfaces;
+  MediaRenderers answer ONLY on the 10.255.0.77 interface. WiiM Pro Plus confirmed at
+  10.255.14.34 (getStatusEx ssid "WiiM Pro Plus-4ABC", LinkPlay https). Jarlid's SSDP went out
+  the OS default interface only → never reached that VLAN.
+- Fix: ssdp_search() now enumerates all local IPv4 (if-addrs), sends M-SEARCH from each
+  (socket2 bind + set_multicast_if_v4) in parallel threads, merges LOCATIONs. Deps added:
+  if-addrs 0.13, socket2 0.5.
+- NOTE the WiiM is on a work/warehouse VLAN (Tom Sawyer Labs). If it later isn't found, re-run
+  scripts/ssdp_probe.py to see which interface (if any) it answers on — could be firewall/VLAN.
+
 ## Round 25 (2026-07-12): v0.6.6 — lyrics vanish during long pause
 - Lyrics disappeared during a long pause, back only next song. Cause: UI lyrics reload key was
   title|artist|album; Pandora collapses the now-playing view when paused a while → album field
